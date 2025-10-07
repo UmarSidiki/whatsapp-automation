@@ -1,52 +1,56 @@
 "use strict";
 
-const createApp = require("./app");
-const env = require("./config/env");
 const logger = require("./config/logger");
-const { shutdownAll } = require("./services/sessionService");
-const { shutdownPersistence } = require("./services/chatPersistenceService");
-const { connectMongo, closeMongo } = require("./services/mongoService");
+const { startServer } = require("./bootstrap/startServer");
+const { createShutdownManager } = require("./bootstrap/shutdown");
 
-let server;
-let shuttingDown = false;
+const isMainModule = require.main === module;
 
-module.exports = null;
+let appInstance = null;
+let serverInstance = null;
+let shutdownManager = null;
 
-(async () => {
+async function start(options = {}) {
+  if (serverInstance) {
+    return { app: appInstance, server: serverInstance, shutdown: shutdownManager };
+  }
+
+  const exitOnShutdown =
+    typeof options.exitOnShutdown === "boolean" ? options.exitOnShutdown : isMainModule;
+
   try {
-    await connectMongo();
-    const app = createApp();
-    module.exports = app; // ensure require() returns the express app once ready
+    const { app, server } = await startServer();
+    appInstance = app;
+    serverInstance = server;
+    shutdownManager = createShutdownManager({ server, exitOnComplete: exitOnShutdown });
+    shutdownManager.register();
 
-    server = app.listen(env.PORT, () => {
-      logger.info({ port: env.PORT }, "Server running");
-    });
+    return { app, server, shutdown: shutdownManager };
   } catch (error) {
     logger.fatal({ err: error }, "Failed to start server");
-    process.exit(1);
+    throw error;
   }
-})();
-
-async function gracefulShutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  logger.info({ signal }, "Received shutdown signal");
-
-  if (server) {
-    await new Promise((resolve) => server.close(resolve));
-  }
-  await shutdownAll();
-  await shutdownPersistence();
-  await closeMongo();
-  process.exit(0);
 }
 
-process.on("SIGINT", gracefulShutdown);
-process.on("SIGTERM", gracefulShutdown);
-process.on("unhandledRejection", (reason) => {
-  logger.error({ err: reason }, "Unhandled promise rejection");
-});
-process.on("uncaughtException", (error) => {
-  logger.fatal({ err: error }, "Uncaught exception");
-  gracefulShutdown("uncaughtException");
-});
+async function stop(reason = "manual") {
+  if (!shutdownManager) {
+    return;
+  }
+
+  await shutdownManager.gracefulShutdown(reason);
+}
+
+if (isMainModule) {
+  start().catch((error) => {
+    logger.fatal({ err: error }, "Unhandled error during startup");
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  start,
+  stop,
+  getApp: () => appInstance,
+  getServer: () => serverInstance,
+  getShutdownManager: () => shutdownManager,
+};

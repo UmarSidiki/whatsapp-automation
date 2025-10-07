@@ -51,6 +51,7 @@ The frontend is served from `frontend/` and provides a basic control panel for Q
 
 ```
 src/
+   bootstrap/         # Startup, shutdown, and session restoration helpers
   app.js              # Express app factory
   index.js            # Process bootstrap & graceful shutdown
   config/             # Environment + logger setup
