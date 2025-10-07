@@ -919,8 +919,10 @@ function ensureScheduledJobs(session) {
 }
 
 function serializeAiConfig(config) {
+  const apiKey = typeof config.apiKey === "string" ? config.apiKey : "";
   return {
-    hasApiKey: Boolean(config.apiKey),
+    apiKey,
+    hasApiKey: Boolean(apiKey),
     model: config.model,
     systemPrompt: config.systemPrompt,
     autoReplyEnabled: config.autoReplyEnabled,

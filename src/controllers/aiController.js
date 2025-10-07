@@ -61,9 +61,7 @@ async function configureAi(req, res) {
     config: responseConfig,
     persisted: {
       updatedAt: persisted?.updatedAt,
-      hasApiKey: Boolean(
-        persisted?.aiConfig?.apiKey || persisted?.credentials?.gemini?.apiKey
-      ),
+      hasApiKey: Boolean(persisted?.credentials?.gemini?.apiKey),
       model: persisted?.aiConfig?.model,
     },
   });
@@ -77,6 +75,7 @@ function getAiConfigHandler(req, res) {
 
   const config =
     fetchAiConfig(req.params.code) || {
+      apiKey: "",
       hasApiKey: false,
       model: "",
       systemPrompt: undefined,

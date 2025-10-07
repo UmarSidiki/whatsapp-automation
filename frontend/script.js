@@ -335,18 +335,19 @@ async function loadAiConfig() {
     const data = await res.json();
     const config = data?.config || {};
 
+    const apiKey = typeof config.apiKey === 'string' ? config.apiKey : '';
+
     state.customReplies = Array.isArray(config.customReplies) ? config.customReplies : [];
-    state.hasStoredApiKey = Boolean(config.hasApiKey);
-    elements.apiKey.value = '';
-    if (state.hasStoredApiKey) {
-      elements.apiKey.placeholder = 'API key stored securely (leave blank to keep)';
-      if (elements.apiKeyHint) {
-        elements.apiKeyHint.textContent = 'API key is stored securely. Leave blank to reuse or enter a new key to replace it.';
+    state.hasStoredApiKey = Boolean(apiKey || config.hasApiKey);
+    elements.apiKey.value = apiKey;
+    elements.apiKey.placeholder = state.hasStoredApiKey
+      ? 'API key loaded from secure storage'
+      : 'Enter your API key';
+    if (elements.apiKeyHint) {
+      if (state.hasStoredApiKey) {
+        elements.apiKeyHint.textContent = 'Existing API key loaded. Update the value to replace it or clear it to reuse the stored key.';
         elements.apiKeyHint.classList.remove('hidden');
-      }
-    } else {
-      elements.apiKey.placeholder = 'Enter your API key';
-      if (elements.apiKeyHint) {
+      } else {
         elements.apiKeyHint.textContent = '';
         elements.apiKeyHint.classList.add('hidden');
       }
@@ -546,8 +547,10 @@ async function saveAiConfig() {
     const data = await res.json();
     if (data.success) {
       setStatus(elements.aiStatus, 'AI configuration saved successfully', 'success');
-      elements.apiKey.value = '';
-      state.hasStoredApiKey = Boolean(apiKey || reuseStoredApiKey);
+      const savedConfig = data.config || {};
+      const savedKey = typeof savedConfig.apiKey === 'string' ? savedConfig.apiKey : apiKey;
+      elements.apiKey.value = savedKey;
+      state.hasStoredApiKey = Boolean(savedKey || savedConfig.hasApiKey || reuseStoredApiKey);
       await loadAiConfig();
     } else {
       setStatus(elements.aiStatus, data.error || 'Failed to save configuration', 'error');

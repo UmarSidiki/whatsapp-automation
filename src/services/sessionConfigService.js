@@ -43,16 +43,19 @@ function sanitizeCustomRepliesForStorage(customReplies) {
 
 function sanitizeAiConfigForStorage(aiConfig) {
   if (!aiConfig || typeof aiConfig !== "object") {
-    return null;
+    return { config: null, apiKey: "" };
   }
+
   const apiKey = typeof aiConfig.apiKey === "string" ? aiConfig.apiKey.trim() : "";
-  return {
-    apiKey,
+
+  const sanitizedConfig = {
     model: aiConfig.model || "",
     systemPrompt: aiConfig.systemPrompt,
     autoReplyEnabled: aiConfig.autoReplyEnabled !== false,
     contextWindow: aiConfig.contextWindow,
   };
+
+  return { config: sanitizedConfig, apiKey };
 }
 
 function hasCustomRepliesPayload(value) {
@@ -74,18 +77,19 @@ async function saveSessionConfig(sessionCode, { aiConfig, customReplies } = {}) 
   const unsetPayload = {};
 
   if (typeof aiConfig !== "undefined") {
-    const sanitizedAiConfig = sanitizeAiConfigForStorage(aiConfig);
+    const { config: sanitizedAiConfig, apiKey } = sanitizeAiConfigForStorage(aiConfig);
+    const hasApiKeyField = Object.prototype.hasOwnProperty.call(aiConfig, "apiKey");
+
     if (sanitizedAiConfig) {
       setPayload.aiConfig = sanitizedAiConfig;
-      const apiKey = sanitizedAiConfig.apiKey;
-      if (apiKey) {
-        setPayload["credentials.gemini.apiKey"] = apiKey;
-        setPayload["credentials.gemini.updatedAt"] = now;
-      } else {
-        unsetPayload["credentials.gemini"] = "";
-      }
     } else {
       unsetPayload.aiConfig = "";
+    }
+
+    if (apiKey) {
+      setPayload["credentials.gemini.apiKey"] = apiKey;
+      setPayload["credentials.gemini.updatedAt"] = now;
+    } else if (hasApiKeyField) {
       unsetPayload["credentials.gemini"] = "";
     }
   }
