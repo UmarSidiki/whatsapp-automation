@@ -22,9 +22,9 @@ async function generateReply({ apiKey, model, systemPrompt }, history) {
     totalChars,
   } = sanitizeHistory(messages);
 
-  const contents = buildContents(promptText, sanitizedHistory);
+  const payload = buildRequestPayload(promptText, sanitizedHistory);
 
-  if (!contents.length) {
+  if (!payload.contents.length) {
     return null;
   }
 
@@ -48,7 +48,7 @@ async function generateReply({ apiKey, model, systemPrompt }, history) {
     response = await fetchFn(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents }),
+      body: JSON.stringify(payload),
       signal: createTimeoutSignal(env.AI_TIMEOUT_MS),
     });
   } catch (error) {
@@ -147,18 +147,24 @@ function sanitizeHistory(history) {
   return { history: limited.reverse(), truncated, totalChars: total };
 }
 
-function buildContents(systemPrompt, history) {
+function buildRequestPayload(systemPrompt, history) {
   const contents = [];
-  if (systemPrompt) {
-    contents.push({ role: "system", parts: [{ text: systemPrompt }] });
-  }
 
   for (const entry of history) {
     const role = entry.role === "assistant" ? "model" : "user";
     contents.push({ role, parts: [{ text: entry.text }] });
   }
 
-  return contents;
+  const payload = { contents };
+
+  if (systemPrompt) {
+    payload.systemInstruction = {
+      role: "user",
+      parts: [{ text: systemPrompt }],
+    };
+  }
+
+  return payload;
 }
 
 module.exports = {

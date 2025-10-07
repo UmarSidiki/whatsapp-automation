@@ -18,6 +18,7 @@ const { listSessions } = require("./services/sessionService");
 function createApp() {
   const app = express();
   app.disable("x-powered-by");
+  app.set("trust proxy", 1);
   app.set("sessionRegistry", listSessions());
 
   app.use(requestLogger);
