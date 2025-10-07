@@ -32,7 +32,8 @@ function clampContextWindow(value) {
 
 const aiConfigSchema = z
   .object({
-    apiKey: z.string().min(10, "API key is required"),
+    apiKey: z.any().optional(),
+    reuseStoredApiKey: z.any().optional(),
     model: z.string().min(1, "Model is required"),
     systemPrompt: z
       .union([z.string(), z.undefined()])
@@ -46,13 +47,36 @@ const aiConfigSchema = z
     contextWindow: z.any().optional(),
     customReplies: z.array(customReplyEntrySchema).optional(),
   })
-  .transform((data) => ({
-    apiKey: data.apiKey.trim(),
-    model: data.model.trim(),
-    systemPrompt: data.systemPrompt,
-    autoReplyEnabled: coerceBoolean(data.autoReplyEnabled, true),
-    contextWindow: clampContextWindow(data.contextWindow ?? DEFAULT_CONTEXT_WINDOW),
-    customReplies: Array.isArray(data.customReplies) ? data.customReplies : [],
-  }));
+  .transform((data) => {
+    const reuseStoredApiKey = coerceBoolean(data.reuseStoredApiKey, false);
+    const apiKey = typeof data.apiKey === "string" ? data.apiKey.trim() : "";
+
+    return {
+      apiKey,
+      reuseStoredApiKey,
+      model: data.model.trim(),
+      systemPrompt: data.systemPrompt,
+      autoReplyEnabled: coerceBoolean(data.autoReplyEnabled, true),
+      contextWindow: clampContextWindow(data.contextWindow ?? DEFAULT_CONTEXT_WINDOW),
+      customReplies: Array.isArray(data.customReplies) ? data.customReplies : [],
+    };
+  })
+  .superRefine((data, ctx) => {
+    if (!data.apiKey && !data.reuseStoredApiKey) {
+      ctx.addIssue({
+        path: ["apiKey"],
+        code: z.ZodIssueCode.custom,
+        message: "API key is required",
+      });
+    }
+
+    if (data.apiKey && data.apiKey.length < 10) {
+      ctx.addIssue({
+        path: ["apiKey"],
+        code: z.ZodIssueCode.custom,
+        message: "API key must be at least 10 characters",
+      });
+    }
+  });
 
 module.exports = aiConfigSchema;

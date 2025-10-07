@@ -25,7 +25,21 @@ async function configureAi(req, res) {
     });
   }
 
-  const updatedConfig = updateAiConfig(req.params.code, parseResult.data);
+  const { reuseStoredApiKey, ...sanitizedConfig } = parseResult.data;
+
+  let apiKey = sanitizedConfig.apiKey;
+  if (!apiKey && reuseStoredApiKey) {
+    apiKey = session.aiConfig?.apiKey || "";
+  }
+
+  if (!apiKey) {
+    return res.status(400).json({ error: "API key is required" });
+  }
+
+  const updatedConfig = updateAiConfig(req.params.code, {
+    ...sanitizedConfig,
+    apiKey,
+  });
 
   try {
     await saveAiConfig(req.params.code, updatedConfig);

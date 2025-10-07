@@ -5,6 +5,7 @@ const state = {
   customReplies: [],
   qrIntervalId: null,
   scheduleJobs: [],
+  hasStoredApiKey: false,
 };
 
 const elements = {};
@@ -31,6 +32,7 @@ function cacheElements() {
   
   // AI Config
   elements.apiKey = document.getElementById('apiKey');
+  elements.apiKeyHint = document.getElementById('apiKeyHint');
   elements.model = document.getElementById('model');
   elements.systemPrompt = document.getElementById('systemPrompt');
   elements.autoReplyEnabled = document.getElementById('autoReplyEnabled');
@@ -126,6 +128,7 @@ function resetUiToLoggedOut() {
   state.code = '';
   state.customReplies = [];
   state.scheduleJobs = [];
+  state.hasStoredApiKey = false;
   showElement(elements.authSection, true);
   showElement(elements.qrBox, false);
   showElement(elements.controlPanel, false);
@@ -135,6 +138,14 @@ function resetUiToLoggedOut() {
   }
   if (elements.qrImg) {
     elements.qrImg.src = '';
+  }
+  if (elements.apiKey) {
+    elements.apiKey.value = '';
+    elements.apiKey.placeholder = 'Enter your API key';
+  }
+  if (elements.apiKeyHint) {
+    elements.apiKeyHint.textContent = '';
+    elements.apiKeyHint.classList.add('hidden');
   }
   renderCustomReplies();
   if (elements.scheduleTableBody) {
@@ -325,7 +336,21 @@ async function loadAiConfig() {
     const config = data?.config || {};
 
     state.customReplies = Array.isArray(config.customReplies) ? config.customReplies : [];
+    state.hasStoredApiKey = Boolean(config.hasApiKey);
     elements.apiKey.value = '';
+    if (state.hasStoredApiKey) {
+      elements.apiKey.placeholder = 'API key stored securely (leave blank to keep)';
+      if (elements.apiKeyHint) {
+        elements.apiKeyHint.textContent = 'API key is stored securely. Leave blank to reuse or enter a new key to replace it.';
+        elements.apiKeyHint.classList.remove('hidden');
+      }
+    } else {
+      elements.apiKey.placeholder = 'Enter your API key';
+      if (elements.apiKeyHint) {
+        elements.apiKeyHint.textContent = '';
+        elements.apiKeyHint.classList.add('hidden');
+      }
+    }
     elements.model.value = sanitizeHTML(config.model || '');
     elements.systemPrompt.value = sanitizeHTML(config.systemPrompt || '');
     elements.autoReplyEnabled.checked = config.autoReplyEnabled !== false;
@@ -490,9 +515,10 @@ async function saveAiConfig() {
   const apiKey = elements.apiKey.value.trim();
   const model = elements.model.value.trim();
   const contextWindow = Number(elements.contextWindow.value) || 50;
+  const reuseStoredApiKey = state.hasStoredApiKey && !apiKey;
 
-  if (!apiKey || !model) {
-    setStatus(elements.aiStatus, 'API key and model are required', 'error');
+  if ((!apiKey && !reuseStoredApiKey) || !model) {
+    setStatus(elements.aiStatus, 'Model is required and you must provide an API key or reuse the stored one.', 'error');
     return;
   }
 
@@ -503,6 +529,7 @@ async function saveAiConfig() {
 
   const payload = {
     apiKey,
+    reuseStoredApiKey,
     model,
     systemPrompt: elements.systemPrompt.value,
     autoReplyEnabled: elements.autoReplyEnabled.checked,
@@ -520,6 +547,7 @@ async function saveAiConfig() {
     if (data.success) {
       setStatus(elements.aiStatus, 'AI configuration saved successfully', 'success');
       elements.apiKey.value = '';
+      state.hasStoredApiKey = Boolean(apiKey || reuseStoredApiKey);
       await loadAiConfig();
     } else {
       setStatus(elements.aiStatus, data.error || 'Failed to save configuration', 'error');
