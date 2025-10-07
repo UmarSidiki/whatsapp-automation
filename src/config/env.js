@@ -20,6 +20,8 @@ const EnvSchema = z
     PUPPETEER_HEADLESS: z.string().optional(),
     GEMINI_BASE_URL: z.string().default("https://generativelanguage.googleapis.com"),
     STATIC_DIR: z.string().optional(),
+    REMOTE_AUTH_BACKUP_MS: z.coerce.number().optional(),
+    REMOTE_AUTH_DATA_PATH: z.string().optional(),
     MONGO_URI: z.string().min(10, "MONGO_URI is required"),
     MONGO_DB_NAME: z.string().min(1, "MONGO_DB_NAME is required"),
   })
@@ -28,6 +30,12 @@ const EnvSchema = z
     isProduction: data.NODE_ENV === "production",
     puppeteerHeadless: data.PUPPETEER_HEADLESS !== "false",
     staticDir: data.STATIC_DIR || path.join(__dirname, "../../frontend"),
+    remoteAuthBackupMs: Math.max(
+      data.REMOTE_AUTH_BACKUP_MS || 5 * 60 * 1000,
+      60 * 1000
+    ),
+    remoteAuthDataPath:
+      data.REMOTE_AUTH_DATA_PATH || path.join(process.cwd(), ".wwebjs_auth"),
   }));
 
 const env = EnvSchema.parse(process.env);

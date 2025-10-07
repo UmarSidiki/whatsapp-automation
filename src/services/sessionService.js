@@ -1,7 +1,7 @@
 "use strict";
 
 const qrcode = require("qrcode");
-const { Client, LocalAuth } = require("whatsapp-web.js");
+const { Client, RemoteAuth } = require("whatsapp-web.js");
 const env = require("../config/env");
 const logger = require("../config/logger");
 const { fetchFn } = require("../utils/http");
@@ -20,6 +20,7 @@ const {
   flushSessionMessages,
 } = require("./chatPersistenceService");
 const { loadSessionConfig } = require("./sessionConfigService");
+const remoteAuthStore = require("./remoteAuthStore");
 const {
   saveScheduledJob,
   updateScheduledJob,
@@ -130,7 +131,12 @@ async function ensureSession(code) {
   }
 
   const client = new Client({
-    authStrategy: new LocalAuth({ clientId: code }),
+    authStrategy: new RemoteAuth({
+      clientId: code,
+      store: remoteAuthStore,
+      backupSyncIntervalMs: env.remoteAuthBackupMs,
+      dataPath: env.remoteAuthDataPath,
+    }),
     puppeteer: {
       headless: env.puppeteerHeadless,
       args: [
