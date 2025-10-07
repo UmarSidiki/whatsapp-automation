@@ -75,7 +75,7 @@ codes/                # Optional codes.json store
 ## Frontend Usage
 
 1. Enter a valid auth code to request a QR code.
-2. Scan the QR using the paired WhatsApp account. Once connected, configure the Gemini API key, model, and optional system prompt.
+2. Scan the QR using the paired WhatsApp account. Once connected, configure the Gemini API key, model, and optional system prompt—these settings are persisted in MongoDB for the session.
 3. Toggle auto replies, adjust the context window, and manage custom replies directly in the console—saved rules persist in MongoDB and carry across restarts.
 4. Paste or upload recipients to broadcast bulk messages—results show successes and failures.
 5. Schedule messages in advance; monitor, cancel, or remove jobs from the schedule table. Scheduled runs survive restarts and resume automatically once the service is back online.

@@ -8,7 +8,7 @@ const {
   getAiConfig: fetchAiConfig,
 } = require("../services/sessionService");
 const { DEFAULT_CONTEXT_WINDOW } = require("../constants");
-const { saveCustomReplies } = require("../services/sessionConfigService");
+const { saveAiConfig } = require("../services/sessionConfigService");
 const logger = require("../config/logger");
 
 async function configureAi(req, res) {
@@ -25,14 +25,12 @@ async function configureAi(req, res) {
     });
   }
 
-  updateAiConfig(req.params.code, parseResult.data);
+  const updatedConfig = updateAiConfig(req.params.code, parseResult.data);
 
-  if (Array.isArray(parseResult.data.customReplies)) {
-    try {
-      await saveCustomReplies(req.params.code, parseResult.data.customReplies);
-    } catch (error) {
-      logger.error({ err: error, code: req.params.code }, "Failed to persist custom replies");
-    }
+  try {
+    await saveAiConfig(req.params.code, updatedConfig);
+  } catch (error) {
+    logger.error({ err: error, code: req.params.code }, "Failed to persist AI configuration");
   }
 
   return res.json({ success: true, config: fetchAiConfig(req.params.code) });
@@ -71,14 +69,14 @@ async function updateCustomReplies(req, res) {
     });
   }
 
-  updateAiConfig(req.params.code, {
+  const updatedConfig = updateAiConfig(req.params.code, {
     customReplies: parseResult.data.customReplies,
   });
 
   try {
-    await saveCustomReplies(req.params.code, parseResult.data.customReplies);
+    await saveAiConfig(req.params.code, updatedConfig);
   } catch (error) {
-    logger.error({ err: error, code: req.params.code }, "Failed to persist custom replies");
+    logger.error({ err: error, code: req.params.code }, "Failed to persist AI configuration");
   }
 
   const config = fetchAiConfig(req.params.code);

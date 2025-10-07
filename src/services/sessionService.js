@@ -42,20 +42,28 @@ const DEFAULT_AI_CONFIG = {
 
 function loadAuthCodes() {
   if (env.AUTH_CODES) {
-    return env.AUTH_CODES.split(",").map((code) => code.trim()).filter(Boolean);
+    return env.AUTH_CODES.split(",")
+      .map((code) => code.trim())
+      .filter(Boolean);
   }
 
-  const codesPath = env.CODE_FILE_PATH || path.join(__dirname, "../../codes/codes.json");
+  const codesPath =
+    env.CODE_FILE_PATH || path.join(__dirname, "../../codes/codes.json");
   try {
     const raw = fs.readFileSync(codesPath, "utf8");
     const data = JSON.parse(raw);
-    const list = Array.isArray(data?.secret_code) ? data.secret_code.filter(Boolean) : [];
+    const list = Array.isArray(data?.secret_code)
+      ? data.secret_code.filter(Boolean)
+      : [];
     if (!list.length) {
       logger.warn({ codesPath }, "codes.json found but contains no codes");
     }
     return list;
   } catch (error) {
-    logger.error({ err: error, codesPath }, "Unable to read auth codes from file");
+    logger.error(
+      { err: error, codesPath },
+      "Unable to read auth codes from file"
+    );
     return [];
   }
 }
@@ -88,7 +96,11 @@ async function ensureSession(code) {
     authStrategy: new LocalAuth({ clientId: code }),
     puppeteer: {
       headless: env.puppeteerHeadless,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
     },
   });
 
@@ -168,8 +180,8 @@ function registerEventHandlers(code, state) {
       current.stopList.delete(chatId);
     }
 
-  appendHistoryEntry(current, chatId, { role: "user", text });
-  persistChatMessage(code, chatId, "incoming", text);
+    appendHistoryEntry(current, chatId, { role: "user", text });
+    persistChatMessage(code, chatId, "incoming", text);
 
     const config = current.aiConfig;
     if (!config) return;
@@ -177,9 +189,12 @@ function registerEventHandlers(code, state) {
     const customReply = findCustomReply(config.customReplies, text);
     if (customReply) {
       try {
-  await safeReply(msg, customReply);
-  appendHistoryEntry(current, chatId, { role: "assistant", text: customReply });
-  persistChatMessage(code, chatId, "outgoing", customReply);
+        await safeReply(msg, customReply);
+        appendHistoryEntry(current, chatId, {
+          role: "assistant",
+          text: customReply,
+        });
+        persistChatMessage(code, chatId, "outgoing", customReply);
       } catch (error) {
         logger.error({ err: error, chatId }, "Custom reply send error");
       }
@@ -200,9 +215,9 @@ function registerEventHandlers(code, state) {
       const history = getHistoryForChat(current, chatId, contextWindow);
       const reply = await generateReply(config, history);
       if (reply) {
-  await safeReply(msg, reply);
-  appendHistoryEntry(current, chatId, { role: "assistant", text: reply });
-  persistChatMessage(code, chatId, "outgoing", reply);
+        await safeReply(msg, reply);
+        appendHistoryEntry(current, chatId, { role: "assistant", text: reply });
+        persistChatMessage(code, chatId, "outgoing", reply);
       }
     } catch (error) {
       logger.error({ err: error, chatId }, "AI reply error");
@@ -223,14 +238,20 @@ function updateAiConfig(code, config) {
   if (!session) {
     throw new Error("Session not found");
   }
-  const baseConfig = session.aiConfig ? { ...session.aiConfig } : { ...DEFAULT_AI_CONFIG };
+  const baseConfig = session.aiConfig
+    ? { ...session.aiConfig }
+    : { ...DEFAULT_AI_CONFIG };
   const nextConfig = {
     ...baseConfig,
     ...config,
   };
 
-  nextConfig.contextWindow = clampContextWindow(config.contextWindow ?? baseConfig.contextWindow);
-  nextConfig.customReplies = sanitizeCustomReplies(config.customReplies ?? baseConfig.customReplies);
+  nextConfig.contextWindow = clampContextWindow(
+    config.contextWindow ?? baseConfig.contextWindow
+  );
+  nextConfig.customReplies = sanitizeCustomReplies(
+    config.customReplies ?? baseConfig.customReplies
+  );
 
   session.aiConfig = nextConfig;
 
@@ -276,7 +297,12 @@ async function sendBulkMessages(code, payload) {
     throw new Error("No valid numbers provided");
   }
 
-  const results = await performBulkSend(session, payload.message, numbers, code);
+  const results = await performBulkSend(
+    session,
+    payload.message,
+    numbers,
+    code
+  );
   const successCount = results.filter((item) => item.success).length;
 
   return {
@@ -329,7 +355,10 @@ async function scheduleMessages(code, payload) {
   try {
     await saveScheduledJob(code, job);
   } catch (error) {
-    logger.error({ err: error, code, jobId }, "Failed to persist scheduled message");
+    logger.error(
+      { err: error, code, jobId },
+      "Failed to persist scheduled message"
+    );
   }
 
   return serializeScheduledJob(job);
@@ -377,7 +406,10 @@ async function cancelScheduledMessage(code, jobId) {
         error: null,
       });
     } catch (error) {
-      logger.error({ err: error, code, jobId }, "Failed to persist cancellation");
+      logger.error(
+        { err: error, code, jobId },
+        "Failed to persist cancellation"
+      );
     }
   }
 
@@ -410,7 +442,10 @@ async function removeScheduledMessage(code, jobId) {
   try {
     await deleteScheduledJob(code, jobId);
   } catch (error) {
-    logger.error({ err: error, code, jobId }, "Failed to delete scheduled message");
+    logger.error(
+      { err: error, code, jobId },
+      "Failed to delete scheduled message"
+    );
   }
 
   return serializeScheduledJob(job);
@@ -444,7 +479,10 @@ function scheduleJobExecution(code, session, job, overrideDelay) {
   }
 
   const sendTime = new Date(job.sendAt).getTime();
-  const delay = typeof overrideDelay === "number" ? Math.max(overrideDelay, 0) : Math.max(sendTime - Date.now(), 0);
+  const delay =
+    typeof overrideDelay === "number"
+      ? Math.max(overrideDelay, 0)
+      : Math.max(sendTime - Date.now(), 0);
 
   const run = async () => {
     job.timeoutId = null;
@@ -452,9 +490,15 @@ function scheduleJobExecution(code, session, job, overrideDelay) {
     job.error = undefined;
 
     try {
-      await updateScheduledJob(code, job.id, { status: "sending", error: null });
+      await updateScheduledJob(code, job.id, {
+        status: "sending",
+        error: null,
+      });
     } catch (error) {
-      logger.error({ err: error, code, jobId: job.id }, "Failed to mark job as sending");
+      logger.error(
+        { err: error, code, jobId: job.id },
+        "Failed to mark job as sending"
+      );
     }
 
     if (!session.ready) {
@@ -462,14 +506,22 @@ function scheduleJobExecution(code, session, job, overrideDelay) {
       try {
         await updateScheduledJob(code, job.id, { status: "scheduled" });
       } catch (error) {
-        logger.error({ err: error, code, jobId: job.id }, "Failed to reschedule job while client not ready");
+        logger.error(
+          { err: error, code, jobId: job.id },
+          "Failed to reschedule job while client not ready"
+        );
       }
       scheduleJobExecution(code, session, job, SCHEDULE_RETRY_DELAY_MS);
       return;
     }
 
     try {
-      const results = await performBulkSend(session, job.message, job.numbers, code);
+      const results = await performBulkSend(
+        session,
+        job.message,
+        job.numbers,
+        code
+      );
       job.status = "sent";
       job.sentAt = new Date().toISOString();
       job.results = results;
@@ -481,7 +533,10 @@ function scheduleJobExecution(code, session, job, overrideDelay) {
           error: null,
         });
       } catch (error) {
-        logger.error({ err: error, code, jobId: job.id }, "Failed to persist sent job state");
+        logger.error(
+          { err: error, code, jobId: job.id },
+          "Failed to persist sent job state"
+        );
       }
     } catch (error) {
       job.status = "failed";
@@ -494,15 +549,24 @@ function scheduleJobExecution(code, session, job, overrideDelay) {
           sentAt: new Date(job.sentAt),
         });
       } catch (persistError) {
-        logger.error({ err: persistError, code, jobId: job.id }, "Failed to persist failed job state");
+        logger.error(
+          { err: persistError, code, jobId: job.id },
+          "Failed to persist failed job state"
+        );
       }
-      logger.error({ err: error, code, jobId: job.id }, "Scheduled message failed");
+      logger.error(
+        { err: error, code, jobId: job.id },
+        "Scheduled message failed"
+      );
     }
   };
 
   const runner = () => {
     run().catch((error) => {
-      logger.error({ err: error, code, jobId: job.id }, "Scheduled message execution error");
+      logger.error(
+        { err: error, code, jobId: job.id },
+        "Scheduled message execution error"
+      );
     });
   };
 
@@ -521,7 +585,10 @@ async function shutdownAll() {
     try {
       await flushSessionMessages(code);
     } catch (error) {
-      logger.error({ err: error, code }, "Failed to flush messages during shutdown");
+      logger.error(
+        { err: error, code },
+        "Failed to flush messages during shutdown"
+      );
     }
 
     try {
@@ -544,7 +611,10 @@ async function destroySession(code) {
   try {
     await flushSessionMessages(code);
   } catch (error) {
-    logger.error({ err: error, code }, "Failed to flush messages before logout");
+    logger.error(
+      { err: error, code },
+      "Failed to flush messages before logout"
+    );
   }
 
   try {
@@ -581,8 +651,10 @@ function sanitizeCustomReplies(list) {
 
   return list
     .map((entry) => {
-      const trigger = typeof entry.trigger === "string" ? entry.trigger.trim() : "";
-      const response = typeof entry.response === "string" ? entry.response.trim() : "";
+      const trigger =
+        typeof entry.trigger === "string" ? entry.trigger.trim() : "";
+      const response =
+        typeof entry.response === "string" ? entry.response.trim() : "";
       const matchType = entry.matchType || "contains";
 
       if (!trigger || !response) {
@@ -665,7 +737,9 @@ function appendHistoryEntry(session, chatId, entry) {
     timestamp: entry.timestamp || Date.now(),
   });
 
-  const limit = clampContextWindow(session.aiConfig?.contextWindow ?? DEFAULT_CONTEXT_WINDOW);
+  const limit = clampContextWindow(
+    session.aiConfig?.contextWindow ?? DEFAULT_CONTEXT_WINDOW
+  );
   if (history.length > limit) {
     history.splice(0, history.length - limit);
   }
@@ -696,18 +770,50 @@ function persistChatMessage(sessionCode, contactId, direction, text) {
 }
 
 async function hydrateSessionState(code, session) {
-  await Promise.all([hydrateCustomReplies(code, session), hydrateScheduledJobs(code, session)]);
+  await Promise.all([
+    hydrateAiConfig(code, session),
+    hydrateScheduledJobs(code, session),
+  ]);
 }
 
-async function hydrateCustomReplies(code, session) {
+async function hydrateAiConfig(code, session) {
   try {
     const persisted = await loadSessionConfig(code);
-    const baseConfig = session.aiConfig ? { ...session.aiConfig } : { ...DEFAULT_AI_CONFIG };
-    const storedReplies = Array.isArray(persisted?.customReplies) ? persisted.customReplies : [];
+    const storedConfig = persisted?.aiConfig || {};
+    const baseConfig = {
+      ...DEFAULT_AI_CONFIG,
+      ...(session.aiConfig || {}),
+    };
+
+    baseConfig.apiKey =
+      typeof storedConfig.apiKey === "string"
+        ? storedConfig.apiKey
+        : baseConfig.apiKey;
+    baseConfig.model =
+      typeof storedConfig.model === "string"
+        ? storedConfig.model
+        : baseConfig.model;
+    baseConfig.systemPrompt =
+      storedConfig.systemPrompt ?? baseConfig.systemPrompt;
+    baseConfig.autoReplyEnabled =
+      storedConfig.autoReplyEnabled ?? baseConfig.autoReplyEnabled;
+    baseConfig.contextWindow = clampContextWindow(
+      storedConfig.contextWindow ??
+        baseConfig.contextWindow ??
+        DEFAULT_CONTEXT_WINDOW
+    );
+
+    const storedReplies = Array.isArray(storedConfig.customReplies)
+      ? storedConfig.customReplies
+      : Array.isArray(persisted?.customReplies)
+      ? persisted.customReplies
+      : [];
+
     baseConfig.customReplies = sanitizeCustomReplies(storedReplies);
+
     session.aiConfig = baseConfig;
   } catch (error) {
-    logger.error({ err: error, code }, "Failed to hydrate custom replies");
+    logger.error({ err: error, code }, "Failed to hydrate AI configuration");
     if (!session.aiConfig) {
       session.aiConfig = { ...DEFAULT_AI_CONFIG };
     }
@@ -728,9 +834,15 @@ async function hydrateScheduledJobs(code, session) {
         job.status = "scheduled";
         job.error = undefined;
         try {
-          await updateScheduledJob(code, job.id, { status: "scheduled", error: null });
+          await updateScheduledJob(code, job.id, {
+            status: "scheduled",
+            error: null,
+          });
         } catch (error) {
-          logger.error({ err: error, code, jobId: job.id }, "Failed to reset in-flight job");
+          logger.error(
+            { err: error, code, jobId: job.id },
+            "Failed to reset in-flight job"
+          );
         }
       }
 
@@ -746,7 +858,9 @@ async function hydrateScheduledJobs(code, session) {
 function getHistoryForChat(session, chatId, contextWindow) {
   const historyStore = ensureChatHistory(session);
   const history = historyStore.get(chatId) || [];
-  const limit = clampContextWindow(contextWindow ?? session.aiConfig?.contextWindow);
+  const limit = clampContextWindow(
+    contextWindow ?? session.aiConfig?.contextWindow
+  );
   return history.slice(-limit);
 }
 
@@ -843,10 +957,10 @@ async function performBulkSend(session, message, numbers, sessionCode) {
   const results = [];
   for (const number of numbers) {
     try {
-  await session.client.sendMessage(number, message);
-  results.push({ number, success: true });
-  appendHistoryEntry(session, number, { role: "assistant", text: message });
-  persistChatMessage(sessionCode, number, "outgoing", message);
+      await session.client.sendMessage(number, message);
+      results.push({ number, success: true });
+      appendHistoryEntry(session, number, { role: "assistant", text: message });
+      persistChatMessage(sessionCode, number, "outgoing", message);
     } catch (error) {
       logger.error({ err: error, number }, "Failed to send message");
       results.push({ number, success: false, error: error.message });
