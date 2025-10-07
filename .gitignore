@@ -5,6 +5,7 @@ Dependencies
 /public/build
 /.wwebjs_auth
 /.wwebjs_cache
+/codes
 
 TypeScript/Vite/Build Artifacts
 /dist-ssr/

@@ -20,16 +20,16 @@ const {
   queueMessageForPersistence,
   flushSessionMessages,
 } = require("./chatPersistenceService");
-const { loadSessionConfig, saveCustomReplies } = require("./sessionConfigService");
+const { loadSessionConfig } = require("./sessionConfigService");
 const {
   saveScheduledJob,
   updateScheduledJob,
   deleteScheduledJob,
   listScheduledJobs,
-  loadActiveScheduledJobs,
 } = require("./schedulePersistenceService");
 
 const sessions = new Map();
+const SCHEDULE_RETRY_DELAY_MS = 5_000;
 
 const DEFAULT_AI_CONFIG = {
   apiKey: "",
@@ -287,7 +287,7 @@ async function sendBulkMessages(code, payload) {
   };
 }
 
-function scheduleMessages(code, payload) {
+async function scheduleMessages(code, payload) {
   const session = sessions.get(code);
   if (!session) {
     throw new Error("Session not found");
@@ -301,7 +301,8 @@ function scheduleMessages(code, payload) {
     throw new Error("No valid numbers provided");
   }
 
-  const delay = payload.sendAt.getTime() - Date.now();
+  const sendAtMs = payload.sendAt.getTime();
+  const delay = sendAtMs - Date.now();
   if (delay < MIN_SCHEDULE_DELAY_MS) {
     throw new Error("Schedule time must be at least 10 seconds in the future");
   }
@@ -316,42 +317,40 @@ function scheduleMessages(code, payload) {
     id: jobId,
     message: payload.message,
     numbers,
-    sendAt: payload.sendAt.toISOString(),
+    sendAt: new Date(sendAtMs).toISOString(),
     createdAt: new Date().toISOString(),
     status: "scheduled",
+    results: [],
   };
 
-  job.timeoutId = setTimeout(async () => {
-    job.status = "sending";
-    try {
-  const results = await performBulkSend(session, job.message, job.numbers, code);
-      job.status = "sent";
-      job.sentAt = new Date().toISOString();
-      job.results = results;
-    } catch (error) {
-      job.status = "failed";
-      job.error = error.message;
-      logger.error({ err: error, code, jobId }, "Scheduled message failed");
-    }
-  }, delay);
-
   jobs.set(jobId, job);
+  scheduleJobExecution(code, session, job);
+
+  try {
+    await saveScheduledJob(code, job);
+  } catch (error) {
+    logger.error({ err: error, code, jobId }, "Failed to persist scheduled message");
+  }
 
   return serializeScheduledJob(job);
 }
 
-function getScheduledMessages(code) {
+async function getScheduledMessages(code) {
   const session = sessions.get(code);
   if (!session) {
     throw new Error("Session not found");
   }
-  const jobs = ensureScheduledJobs(session);
-  return Array.from(jobs.values())
-    .map((job) => serializeScheduledJob(job))
-    .sort((a, b) => new Date(a.sendAt).getTime() - new Date(b.sendAt).getTime());
+
+  try {
+    const documents = await listScheduledJobs(code);
+    return documents.map((doc) => serializeScheduledJob(documentToJob(doc)));
+  } catch (error) {
+    logger.error({ err: error, code }, "Failed to list scheduled messages");
+    throw new Error("Failed to load scheduled messages");
+  }
 }
 
-function cancelScheduledMessage(code, jobId) {
+async function cancelScheduledMessage(code, jobId) {
   const session = sessions.get(code);
   if (!session) {
     throw new Error("Session not found");
@@ -370,12 +369,22 @@ function cancelScheduledMessage(code, jobId) {
   if (job.status === "scheduled" || job.status === "sending") {
     job.status = "cancelled";
     job.cancelledAt = new Date().toISOString();
+    job.error = undefined;
+    try {
+      await updateScheduledJob(code, jobId, {
+        status: job.status,
+        cancelledAt: new Date(job.cancelledAt),
+        error: null,
+      });
+    } catch (error) {
+      logger.error({ err: error, code, jobId }, "Failed to persist cancellation");
+    }
   }
 
   return serializeScheduledJob(job);
 }
 
-function removeScheduledMessage(code, jobId) {
+async function removeScheduledMessage(code, jobId) {
   const session = sessions.get(code);
   if (!session) {
     throw new Error("Session not found");
@@ -398,7 +407,113 @@ function removeScheduledMessage(code, jobId) {
 
   jobs.delete(jobId);
 
+  try {
+    await deleteScheduledJob(code, jobId);
+  } catch (error) {
+    logger.error({ err: error, code, jobId }, "Failed to delete scheduled message");
+  }
+
   return serializeScheduledJob(job);
+}
+
+function documentToJob(doc) {
+  const fallback = new Date();
+  return {
+    id: doc.jobId,
+    message: doc.message,
+    numbers: Array.isArray(doc.numbers) ? doc.numbers : [],
+    sendAt: (doc.sendAt || fallback).toISOString(),
+    createdAt: (doc.createdAt || fallback).toISOString(),
+    status: doc.status || "scheduled",
+    results: Array.isArray(doc.results) ? doc.results : [],
+    error: doc.error || undefined,
+    sentAt: doc.sentAt ? doc.sentAt.toISOString() : undefined,
+    cancelledAt: doc.cancelledAt ? doc.cancelledAt.toISOString() : undefined,
+    timeoutId: null,
+  };
+}
+
+function scheduleJobExecution(code, session, job, overrideDelay) {
+  if (job.status !== "scheduled") {
+    return;
+  }
+
+  if (job.timeoutId) {
+    clearTimeout(job.timeoutId);
+    job.timeoutId = null;
+  }
+
+  const sendTime = new Date(job.sendAt).getTime();
+  const delay = typeof overrideDelay === "number" ? Math.max(overrideDelay, 0) : Math.max(sendTime - Date.now(), 0);
+
+  const run = async () => {
+    job.timeoutId = null;
+    job.status = "sending";
+    job.error = undefined;
+
+    try {
+      await updateScheduledJob(code, job.id, { status: "sending", error: null });
+    } catch (error) {
+      logger.error({ err: error, code, jobId: job.id }, "Failed to mark job as sending");
+    }
+
+    if (!session.ready) {
+      job.status = "scheduled";
+      try {
+        await updateScheduledJob(code, job.id, { status: "scheduled" });
+      } catch (error) {
+        logger.error({ err: error, code, jobId: job.id }, "Failed to reschedule job while client not ready");
+      }
+      scheduleJobExecution(code, session, job, SCHEDULE_RETRY_DELAY_MS);
+      return;
+    }
+
+    try {
+      const results = await performBulkSend(session, job.message, job.numbers, code);
+      job.status = "sent";
+      job.sentAt = new Date().toISOString();
+      job.results = results;
+      try {
+        await updateScheduledJob(code, job.id, {
+          status: "sent",
+          sentAt: new Date(job.sentAt),
+          results,
+          error: null,
+        });
+      } catch (error) {
+        logger.error({ err: error, code, jobId: job.id }, "Failed to persist sent job state");
+      }
+    } catch (error) {
+      job.status = "failed";
+      job.error = error.message;
+      job.sentAt = new Date().toISOString();
+      try {
+        await updateScheduledJob(code, job.id, {
+          status: "failed",
+          error: error.message,
+          sentAt: new Date(job.sentAt),
+        });
+      } catch (persistError) {
+        logger.error({ err: persistError, code, jobId: job.id }, "Failed to persist failed job state");
+      }
+      logger.error({ err: error, code, jobId: job.id }, "Scheduled message failed");
+    }
+  };
+
+  const runner = () => {
+    run().catch((error) => {
+      logger.error({ err: error, code, jobId: job.id }, "Scheduled message execution error");
+    });
+  };
+
+  if (delay > 0) {
+    job.timeoutId = setTimeout(runner, delay);
+    if (job.timeoutId && typeof job.timeoutId.unref === "function") {
+      job.timeoutId.unref();
+    }
+  } else {
+    setImmediate(runner);
+  }
 }
 
 async function shutdownAll() {
@@ -577,6 +692,54 @@ function persistChatMessage(sessionCode, contactId, direction, text) {
       { err: error, sessionCode, contactId },
       "Chat persistence skipped due to upstream error"
     );
+  }
+}
+
+async function hydrateSessionState(code, session) {
+  await Promise.all([hydrateCustomReplies(code, session), hydrateScheduledJobs(code, session)]);
+}
+
+async function hydrateCustomReplies(code, session) {
+  try {
+    const persisted = await loadSessionConfig(code);
+    const baseConfig = session.aiConfig ? { ...session.aiConfig } : { ...DEFAULT_AI_CONFIG };
+    const storedReplies = Array.isArray(persisted?.customReplies) ? persisted.customReplies : [];
+    baseConfig.customReplies = sanitizeCustomReplies(storedReplies);
+    session.aiConfig = baseConfig;
+  } catch (error) {
+    logger.error({ err: error, code }, "Failed to hydrate custom replies");
+    if (!session.aiConfig) {
+      session.aiConfig = { ...DEFAULT_AI_CONFIG };
+    }
+  }
+}
+
+async function hydrateScheduledJobs(code, session) {
+  const jobs = ensureScheduledJobs(session);
+  jobs.clear();
+
+  try {
+    const documents = await listScheduledJobs(code);
+    for (const doc of documents) {
+      const job = documentToJob(doc);
+      jobs.set(job.id, job);
+
+      if (job.status === "sending") {
+        job.status = "scheduled";
+        job.error = undefined;
+        try {
+          await updateScheduledJob(code, job.id, { status: "scheduled", error: null });
+        } catch (error) {
+          logger.error({ err: error, code, jobId: job.id }, "Failed to reset in-flight job");
+        }
+      }
+
+      if (job.status === "scheduled") {
+        scheduleJobExecution(code, session, job);
+      }
+    }
+  } catch (error) {
+    logger.error({ err: error, code }, "Failed to hydrate scheduled jobs");
   }
 }
 

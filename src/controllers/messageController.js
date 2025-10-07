@@ -40,10 +40,10 @@ async function handleBulkSend(req, res) {
   }
 }
 
-function listScheduled(req, res) {
+async function listScheduled(req, res) {
   validateSession(req.params.code);
   try {
-    const jobs = getScheduledMessages(req.params.code);
+    const jobs = await getScheduledMessages(req.params.code);
     return res.json({ jobs });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -51,7 +51,7 @@ function listScheduled(req, res) {
   }
 }
 
-function createSchedule(req, res) {
+async function createSchedule(req, res) {
   validateSession(req.params.code);
   const parseResult = scheduleMessageSchema.safeParse(req.body || {});
   if (!parseResult.success) {
@@ -62,7 +62,7 @@ function createSchedule(req, res) {
   }
 
   try {
-    const job = scheduleMessages(req.params.code, parseResult.data);
+    const job = await scheduleMessages(req.params.code, parseResult.data);
     return res.status(201).json({ success: true, job });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -70,12 +70,12 @@ function createSchedule(req, res) {
   }
 }
 
-function cancelSchedule(req, res) {
+async function cancelSchedule(req, res) {
   validateSession(req.params.code);
   try {
     const mode = String(req.query.mode || "").toLowerCase();
     const handler = mode === "remove" ? removeScheduledMessage : cancelScheduledMessage;
-    const job = handler(req.params.code, req.params.jobId);
+    const job = await handler(req.params.code, req.params.jobId);
     return res.json({ success: true, job, removed: mode === "remove" });
   } catch (error) {
     const status = error.statusCode || 500;

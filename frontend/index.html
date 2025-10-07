@@ -351,7 +351,7 @@
       <!-- Custom Replies Tab -->
       <div class="tab-content" id="customReplies">
         <div class="info-box">
-          Custom replies trigger before AI processing. Use them for FAQs, greetings, or keyword-based responses.
+          Custom replies trigger before AI processing. Use them for FAQs, greetings, or keyword-based responses. Saved rules are persisted in MongoDB and reload automatically when you sign back in.
         </div>
 
         <div class="batch-input">
@@ -435,7 +435,7 @@ support|exact|Contact support@example.com"></textarea>
       <!-- Scheduling Tab -->
       <div class="tab-content" id="scheduling">
         <div class="info-box">
-          Schedule messages to be sent at a future time. Scheduled jobs are executed automatically by the server.
+          Schedule messages to be sent at a future time. Scheduled jobs persist in MongoDB and resume automatically after restarts.
         </div>
 
         <div class="grid">

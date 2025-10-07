@@ -11,7 +11,7 @@ const { DEFAULT_CONTEXT_WINDOW } = require("../constants");
 const { saveCustomReplies } = require("../services/sessionConfigService");
 const logger = require("../config/logger");
 
-function configureAi(req, res) {
+async function configureAi(req, res) {
   const session = getSession(req.params.code);
   if (!session) {
     return res.status(404).json({ error: "No session found" });
@@ -26,6 +26,14 @@ function configureAi(req, res) {
   }
 
   updateAiConfig(req.params.code, parseResult.data);
+
+  if (Array.isArray(parseResult.data.customReplies)) {
+    try {
+      await saveCustomReplies(req.params.code, parseResult.data.customReplies);
+    } catch (error) {
+      logger.error({ err: error, code: req.params.code }, "Failed to persist custom replies");
+    }
+  }
 
   return res.json({ success: true, config: fetchAiConfig(req.params.code) });
 }

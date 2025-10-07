@@ -76,9 +76,9 @@ codes/                # Optional codes.json store
 
 1. Enter a valid auth code to request a QR code.
 2. Scan the QR using the paired WhatsApp account. Once connected, configure the Gemini API key, model, and optional system prompt.
-3. Toggle auto replies, adjust the context window, and manage custom replies directly in the console.
+3. Toggle auto replies, adjust the context window, and manage custom replies directly in the console—saved rules persist in MongoDB and carry across restarts.
 4. Paste or upload recipients to broadcast bulk messages—results show successes and failures.
-5. Schedule messages in advance; monitor and cancel pending jobs from the schedule table.
+5. Schedule messages in advance; monitor, cancel, or remove jobs from the schedule table. Scheduled runs survive restarts and resume automatically once the service is back online.
 6. Users can send `!stopauto` in the chat to disable automated replies for 24 hours.
 
 ### API additions
@@ -88,7 +88,7 @@ codes/                # Optional codes.json store
 - `POST /messages/:code/bulk` – Send an immediate broadcast to multiple numbers.
 - `GET /messages/:code/schedule` – List upcoming scheduled jobs and historical results.
 - `POST /messages/:code/schedule` – Schedule a delayed broadcast.
-- `DELETE /messages/:code/schedule/:jobId` – Cancel a pending scheduled job.
+- `DELETE /messages/:code/schedule/:jobId` – Cancel a pending scheduled job (`?mode=remove` to delete the record entirely).
 
 ## Troubleshooting
 
