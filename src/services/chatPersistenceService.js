@@ -1,6 +1,5 @@
 "use strict";
 
-const { ObjectId } = require("mongodb");
 const logger = require("../config/logger");
 const { connectMongo, getCollection } = require("./mongoService");
 
@@ -20,12 +19,10 @@ async function ensureIndexes() {
   await connectMongo();
 
   const contacts = getCollection("contacts");
-  const messages = getCollection("messages");
 
   await Promise.all([
     contacts.createIndex({ sessionCode: 1, contactId: 1 }, { unique: true }),
-    contacts.createIndex({ messageCount: -1, lastMessageAt: -1 }),
-    messages.createIndex({ sessionCode: 1, contactId: 1, timestamp: -1 }),
+    contacts.createIndex({ sessionCode: 1, lastMessageAt: -1 }),
   ]);
 
   initialized = true;
@@ -192,82 +189,62 @@ async function persistBatches(batches) {
 
   await ensureIndexes();
   const contacts = getCollection("contacts");
-  const messages = getCollection("messages");
 
   for (const batch of batches) {
-    await persistBatch(contacts, messages, batch);
+    await persistBatch(contacts, batch);
   }
 }
 
-async function persistBatch(contacts, messagesCollection, batch) {
+async function persistBatch(contacts, batch) {
   const { sessionCode, contactId, messages } = batch;
   if (!messages.length) {
     return;
   }
 
-  const docs = messages.map((entry) => ({
-    _id: new ObjectId(),
-    sessionCode,
-    contactId,
-    direction: entry.direction,
-    message: entry.message,
-    timestamp: normalizeTimestamp(entry.timestamp),
-  }));
+  const entries = messages
+    .map((entry) => ({
+      direction: entry.direction,
+      message: entry.message,
+      timestamp: normalizeTimestamp(entry.timestamp),
+    }))
+    .filter((entry) => entry.message);
 
-  const directionCounts = docs.reduce((acc, entry) => {
+  if (!entries.length) {
+    return;
+  }
+
+  const directionCounts = entries.reduce((acc, entry) => {
     acc[entry.direction] = (acc[entry.direction] || 0) + 1;
     return acc;
   }, {});
 
-  const first = docs[0];
-  const last = docs[docs.length - 1];
-  const increments = { messageCount: docs.length };
+  const first = entries[0];
+  const last = entries[entries.length - 1];
+  const increments = { messageCount: entries.length };
   for (const [direction, count] of Object.entries(directionCounts)) {
     increments[`counts.${direction}`] = count;
   }
 
-  await contacts.updateOne(
-    { sessionCode, contactId },
-    {
-      $setOnInsert: {
-        createdAt: first.timestamp,
-        firstDirection: first.direction,
-      },
-      $set: {
-        lastMessageAt: last.timestamp,
-        lastDirection: last.direction,
-      },
-      $inc: increments,
+  const update = {
+    $setOnInsert: {
+      createdAt: first.timestamp,
+      firstDirection: first.direction,
     },
-    { upsert: true }
-  );
+    $set: {
+      lastMessageAt: last.timestamp,
+      lastDirection: last.direction,
+      updatedAt: last.timestamp,
+    },
+    $inc: increments,
+    $push: {
+      messages: {
+        $each: entries,
+        $slice: -MAX_MESSAGES_PER_CONTACT,
+      },
+    },
+  };
 
-  try {
-    await messagesCollection.insertMany(docs, { ordered: false });
-  } catch (error) {
-    logger.warn(
-      { err: error, sessionCode, contactId },
-      "Chat message insert encountered duplicates"
-    );
-  }
-
-  await trimMessages(messagesCollection, sessionCode, contactId);
-}
-
-async function trimMessages(messagesCollection, sessionCode, contactId) {
-  const cursor = messagesCollection
-    .find({ sessionCode, contactId })
-    .project({ _id: 1 })
-    .sort({ timestamp: -1, _id: -1 })
-    .skip(MAX_MESSAGES_PER_CONTACT);
-
-  const stale = await cursor.toArray();
-  if (!stale.length) {
-    return;
-  }
-
-  const ids = stale.map((doc) => doc._id);
-  await messagesCollection.deleteMany({ _id: { $in: ids } });
+  await contacts.updateOne({ sessionCode, contactId }, update, { upsert: true });
 }
 
 module.exports = {

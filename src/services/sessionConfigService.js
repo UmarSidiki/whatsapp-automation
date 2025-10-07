@@ -45,14 +45,18 @@ function sanitizeAiConfigForStorage(aiConfig) {
   if (!aiConfig || typeof aiConfig !== "object") {
     return null;
   }
+  const apiKey = typeof aiConfig.apiKey === "string" ? aiConfig.apiKey.trim() : "";
   return {
-    apiKey: aiConfig.apiKey || "",
+    apiKey,
     model: aiConfig.model || "",
     systemPrompt: aiConfig.systemPrompt,
     autoReplyEnabled: aiConfig.autoReplyEnabled !== false,
     contextWindow: aiConfig.contextWindow,
-    customReplies: sanitizeCustomRepliesForStorage(aiConfig.customReplies),
   };
+}
+
+function hasCustomRepliesPayload(value) {
+  return Array.isArray(value);
 }
 
 async function saveSessionConfig(sessionCode, { aiConfig, customReplies } = {}) {
@@ -67,25 +71,48 @@ async function saveSessionConfig(sessionCode, { aiConfig, customReplies } = {}) 
   const setPayload = {
     updatedAt: now,
   };
+  const unsetPayload = {};
 
-  if (aiConfig) {
-    setPayload.aiConfig = sanitizeAiConfigForStorage(aiConfig);
+  if (typeof aiConfig !== "undefined") {
+    const sanitizedAiConfig = sanitizeAiConfigForStorage(aiConfig);
+    if (sanitizedAiConfig) {
+      setPayload.aiConfig = sanitizedAiConfig;
+      const apiKey = sanitizedAiConfig.apiKey;
+      if (apiKey) {
+        setPayload["credentials.gemini.apiKey"] = apiKey;
+        setPayload["credentials.gemini.updatedAt"] = now;
+      } else {
+        unsetPayload["credentials.gemini"] = "";
+      }
+    } else {
+      unsetPayload.aiConfig = "";
+      unsetPayload["credentials.gemini"] = "";
+    }
   }
 
-  if (customReplies) {
-    setPayload.customReplies = sanitizeCustomRepliesForStorage(customReplies);
+  if (typeof customReplies !== "undefined") {
+    const sanitizedCustomReplies = sanitizeCustomRepliesForStorage(customReplies);
+    if (sanitizedCustomReplies.length) {
+      setPayload.customReplies = sanitizedCustomReplies;
+      unsetPayload["aiConfig.customReplies"] = "";
+    } else if (hasCustomRepliesPayload(customReplies)) {
+      unsetPayload.customReplies = "";
+      unsetPayload["aiConfig.customReplies"] = "";
+    }
   }
 
-  await collection.updateOne(
-    { sessionCode },
-    {
-      $set: setPayload,
-      $setOnInsert: {
-        createdAt: now,
-      },
+  const updateDoc = {
+    $set: setPayload,
+    $setOnInsert: {
+      createdAt: now,
     },
-    { upsert: true }
-  );
+  };
+
+  if (Object.keys(unsetPayload).length) {
+    updateDoc.$unset = unsetPayload;
+  }
+
+  await collection.updateOne({ sessionCode }, updateDoc, { upsert: true });
 }
 
 async function saveAiConfig(sessionCode, aiConfig) {

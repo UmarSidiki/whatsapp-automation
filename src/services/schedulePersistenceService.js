@@ -91,7 +91,8 @@ async function updateScheduledJob(sessionCode, jobId, update) {
 async function deleteScheduledJob(sessionCode, jobId) {
   await ensureIndexes();
   const collection = getCollection("scheduledMessages");
-  await collection.deleteOne({ sessionCode, jobId });
+  const result = await collection.deleteOne({ sessionCode, jobId });
+  return result.deletedCount > 0;
 }
 
 async function listScheduledJobs(sessionCode) {

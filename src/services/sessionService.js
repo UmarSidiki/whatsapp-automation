@@ -440,7 +440,10 @@ async function removeScheduledMessage(code, jobId) {
   jobs.delete(jobId);
 
   try {
-    await deleteScheduledJob(code, jobId);
+    const removed = await deleteScheduledJob(code, jobId);
+    if (!removed) {
+      logger.warn({ code, jobId }, "Scheduled message not found in persistence while removing");
+    }
   } catch (error) {
     logger.error(
       { err: error, code, jobId },
@@ -780,15 +783,22 @@ async function hydrateAiConfig(code, session) {
   try {
     const persisted = await loadSessionConfig(code);
     const storedConfig = persisted?.aiConfig || {};
+    const storedCredentials = persisted?.credentials?.gemini || {};
     const baseConfig = {
       ...DEFAULT_AI_CONFIG,
       ...(session.aiConfig || {}),
     };
 
-    baseConfig.apiKey =
-      typeof storedConfig.apiKey === "string"
-        ? storedConfig.apiKey
-        : baseConfig.apiKey;
+    const apiKeyFromConfig =
+      typeof storedConfig.apiKey === "string" && storedConfig.apiKey.trim()
+        ? storedConfig.apiKey.trim()
+        : "";
+    const apiKeyFromCredentials =
+      typeof storedCredentials.apiKey === "string" && storedCredentials.apiKey.trim()
+        ? storedCredentials.apiKey.trim()
+        : "";
+
+    baseConfig.apiKey = apiKeyFromConfig || apiKeyFromCredentials || baseConfig.apiKey;
     baseConfig.model =
       typeof storedConfig.model === "string"
         ? storedConfig.model
