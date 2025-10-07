@@ -1,11 +1,10 @@
 "use strict";
 
-const fs = require("fs");
-const path = require("path");
 const qrcode = require("qrcode");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const env = require("../config/env");
 const logger = require("../config/logger");
+const { fetchFn } = require("../utils/http");
 const {
   STOP_TIMEOUT_MS,
   QR_REFRESH_INTERVAL_MS,
@@ -31,6 +30,10 @@ const {
 const sessions = new Map();
 const SCHEDULE_RETRY_DELAY_MS = 5_000;
 
+const AUTH_CODES_URL =
+  "https://cdn.jsdelivr.net/gh/UmarSidiki/Multi-Tool@refs/heads/master/wp-ai-codes.json";
+const AUTH_CODES_REFRESH_MS = 5 * 60 * 1000;
+
 const DEFAULT_AI_CONFIG = {
   apiKey: "",
   model: "",
@@ -40,43 +43,77 @@ const DEFAULT_AI_CONFIG = {
   customReplies: [],
 };
 
-function loadAuthCodes() {
-  if (env.AUTH_CODES) {
-    return env.AUTH_CODES.split(",")
-      .map((code) => code.trim())
-      .filter(Boolean);
+let cachedAuthCodes = [];
+let authCodesFetchedAt = 0;
+let authCodesPromise = null;
+
+async function fetchAuthCodesFromSource() {
+  const response = await fetchFn(AUTH_CODES_URL, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    const error = new Error(`Auth code source responded with ${response.status}`);
+    error.statusCode = response.status;
+    throw error;
   }
 
-  const codesPath =
-    env.CODE_FILE_PATH || path.join(__dirname, "../../codes/codes.json");
-  try {
-    const raw = fs.readFileSync(codesPath, "utf8");
-    const data = JSON.parse(raw);
-    const list = Array.isArray(data?.secret_code)
-      ? data.secret_code.filter(Boolean)
-      : [];
-    if (!list.length) {
-      logger.warn({ codesPath }, "codes.json found but contains no codes");
-    }
-    return list;
-  } catch (error) {
-    logger.error(
-      { err: error, codesPath },
-      "Unable to read auth codes from file"
-    );
-    return [];
+  const payload = await response.json().catch(() => ({}));
+  const list = Array.isArray(payload?.secret_code)
+    ? payload.secret_code
+    : [];
+
+  const normalized = list
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+
+  cachedAuthCodes = normalized;
+  authCodesFetchedAt = Date.now();
+
+  if (!normalized.length) {
+    logger.warn({ source: AUTH_CODES_URL }, "Auth code source returned no codes");
   }
+
+  return cachedAuthCodes;
 }
 
-const AUTH_CODES = loadAuthCodes();
-if (!AUTH_CODES.length) {
-  logger.warn(
-    "No auth codes configured. Set AUTH_CODES env var or populate codes/codes.json to enable logins."
-  );
+async function loadAuthCodes({ force = false } = {}) {
+  const isCacheFresh =
+    !force && cachedAuthCodes.length && Date.now() - authCodesFetchedAt < AUTH_CODES_REFRESH_MS;
+
+  if (isCacheFresh) {
+    return cachedAuthCodes;
+  }
+
+  if (!authCodesPromise) {
+    authCodesPromise = fetchAuthCodesFromSource()
+      .catch((error) => {
+        logger.error({ err: error, source: AUTH_CODES_URL }, "Failed to load auth codes from CDN");
+        if (!cachedAuthCodes.length) {
+          authCodesFetchedAt = 0;
+        }
+        return cachedAuthCodes;
+      })
+      .finally(() => {
+        authCodesPromise = null;
+      });
+  }
+
+  return authCodesPromise;
 }
 
-function isAuthorized(code) {
-  return AUTH_CODES.includes(code);
+loadAuthCodes().catch(() => {
+  /* Initialization errors already logged */
+});
+
+async function isAuthorized(code) {
+  const trimmed = typeof code === "string" ? code.trim() : "";
+  if (!trimmed) {
+    return false;
+  }
+  const codes = await loadAuthCodes();
+  return codes.includes(trimmed);
 }
 
 function getSession(code) {
@@ -980,7 +1017,6 @@ async function performBulkSend(session, message, numbers, sessionCode) {
 }
 
 module.exports = {
-  AUTH_CODES,
   isAuthorized,
   ensureSession,
   getSession,
@@ -994,4 +1030,5 @@ module.exports = {
   removeScheduledMessage,
   shutdownAll,
   destroySession,
+  loadAuthCodes,
 };

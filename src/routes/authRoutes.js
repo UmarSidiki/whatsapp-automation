@@ -16,7 +16,7 @@ router.post("/auth", authLimiter, async (req, res, next) => {
 
 router.get("/auth/:code/status", async (req, res, next) => {
   try {
-    sessionStatus(req, res);
+    await sessionStatus(req, res);
   } catch (error) {
     next(error);
   }

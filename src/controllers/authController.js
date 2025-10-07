@@ -13,7 +13,7 @@ async function startSession(req, res) {
     return res.status(400).json({ error: "Code is required" });
   }
 
-  if (!isAuthorized(code)) {
+  if (!(await isAuthorized(code))) {
     return res.status(401).json({ error: "Invalid code" });
   }
 
@@ -27,7 +27,7 @@ async function endSession(req, res) {
     return res.status(400).json({ error: "Code is required" });
   }
 
-  if (!isAuthorized(code)) {
+  if (!(await isAuthorized(code))) {
     return res.status(401).json({ error: "Invalid code" });
   }
 
@@ -39,13 +39,13 @@ async function endSession(req, res) {
   return res.json({ success: true });
 }
 
-function sessionStatus(req, res) {
+async function sessionStatus(req, res) {
   const code = String(req.params?.code || "").trim();
   if (!code) {
     return res.status(400).json({ error: "Code is required" });
   }
 
-  if (!isAuthorized(code)) {
+  if (!(await isAuthorized(code))) {
     return res.status(401).json({ error: "Invalid code" });
   }
 
