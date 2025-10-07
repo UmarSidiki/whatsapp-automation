@@ -8,7 +8,7 @@ const {
   getAiConfig: fetchAiConfig,
 } = require("../services/sessionService");
 const { DEFAULT_CONTEXT_WINDOW } = require("../constants");
-const { saveAiConfig } = require("../services/sessionConfigService");
+const { saveAiConfig, loadSessionConfig } = require("../services/sessionConfigService");
 const logger = require("../config/logger");
 
 async function configureAi(req, res) {
@@ -45,9 +45,28 @@ async function configureAi(req, res) {
     await saveAiConfig(req.params.code, updatedConfig);
   } catch (error) {
     logger.error({ err: error, code: req.params.code }, "Failed to persist AI configuration");
+    return res.status(500).json({ error: "Failed to persist AI configuration" });
   }
 
-  return res.json({ success: true, config: fetchAiConfig(req.params.code) });
+  let persisted;
+  try {
+    persisted = await loadSessionConfig(req.params.code);
+  } catch (error) {
+    logger.error({ err: error, code: req.params.code }, "Failed to reload persisted AI config");
+  }
+
+  const responseConfig = fetchAiConfig(req.params.code);
+  return res.json({
+    success: true,
+    config: responseConfig,
+    persisted: {
+      updatedAt: persisted?.updatedAt,
+      hasApiKey: Boolean(
+        persisted?.aiConfig?.apiKey || persisted?.credentials?.gemini?.apiKey
+      ),
+      model: persisted?.aiConfig?.model,
+    },
+  });
 }
 
 function getAiConfigHandler(req, res) {

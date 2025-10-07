@@ -94,10 +94,8 @@ async function saveSessionConfig(sessionCode, { aiConfig, customReplies } = {}) 
     const sanitizedCustomReplies = sanitizeCustomRepliesForStorage(customReplies);
     if (sanitizedCustomReplies.length) {
       setPayload.customReplies = sanitizedCustomReplies;
-      unsetPayload["aiConfig.customReplies"] = "";
     } else if (hasCustomRepliesPayload(customReplies)) {
       unsetPayload.customReplies = "";
-      unsetPayload["aiConfig.customReplies"] = "";
     }
   }
 
