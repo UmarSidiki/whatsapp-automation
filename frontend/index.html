@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>WhatsApp Automation Console</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';">
+  <meta name="referrer" content="no-referrer">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; 
+      background: #e8e8e8; 
+      color: #1a1a1a; 
+      line-height: 1.6;
+    }
+    header {
+      background: #2a2a2a;
+      color: #fff;
+      padding: 16px 24px;
+      border-bottom: 2px solid #000;
+    }
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    main { 
+      max-width: 1200px; 
+      margin: 0 auto; 
+      padding: 24px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #ccc;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .card-header {
+      background: #f5f5f5;
+      padding: 16px 20px;
+      border-bottom: 1px solid #ccc;
+      font-weight: 600;
+      font-size: 1rem;
+    }
+    .card-body {
+      padding: 20px;
+    }
+    .tabs {
+      display: flex;
+      background: #f5f5f5;
+      border-bottom: 2px solid #000;
+      overflow-x: auto;
+    }
+    .tab-button {
+      background: transparent;
+      border: none;
+      padding: 14px 24px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #666;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .tab-button:hover {
+      background: #ebebeb;
+      color: #1a1a1a;
+    }
+    .tab-button.active {
+      color: #000;
+      border-bottom-color: #000;
+      background: #fff;
+    }
+    .tab-content {
+      display: none;
+      padding: 24px;
+      background: #fff;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    label {
+      display: block;
+      font-weight: 500;
+      font-size: 0.875rem;
+      margin-bottom: 6px;
+      color: #333;
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="password"],
+    input[type="datetime-local"],
+    input[type="file"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #999;
+      font-size: 0.9rem;
+      margin-bottom: 16px;
+      background: #fff;
+      color: #1a1a1a;
+      font-family: inherit;
+    }
+    input:focus,
+    textarea:focus,
+    select:focus {
+      outline: 2px solid #000;
+      outline-offset: 0;
+      border-color: #000;
+    }
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin: 0 8px 0 0;
+      cursor: pointer;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 100px;
+    }
+    button {
+      background: #2a2a2a;
+      border: 1px solid #000;
+      color: #fff;
+      padding: 11px 20px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      font-family: inherit;
+    }
+    button:hover:not(:disabled) {
+      background: #000;
+      color: #ebebeb;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: #666;
+      border-color: #555;
+    }
+    button.secondary:hover:not(:disabled) {
+      background: #555;
+    }
+    button.danger {
+      background: #c41e3a;
+      border-color: #a0182e;
+    }
+    button.danger:hover:not(:disabled) {
+      background: #a0182e;
+    }
+    button.small {
+      padding: 6px 12px;
+      font-size: 0.8rem;
+    }
+    .control-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: #f9f9f9;
+      border-bottom: 1px solid #ccc;
+      gap: 16px;
+    }
+    .session-indicator {
+      font-size: 0.875rem;
+      color: #333;
+      font-weight: 500;
+    }
+    img {
+      max-width: 300px;
+      width: 100%;
+      margin-top: 12px;
+      border: 2px solid #ccc;
+    }
+    .hidden {
+      display: none !important;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .toggle-row label {
+      margin: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      font-size: 0.85rem;
+      border: 1px solid #ccc;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background: #f5f5f5;
+      font-weight: 600;
+      border-bottom: 2px solid #999;
+    }
+    tbody tr:nth-child(even) {
+      background: #fafafa;
+    }
+    .status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      font-size: 0.875rem;
+      border-left: 3px solid #666;
+      background: #f5f5f5;
+    }
+    .status.error {
+      border-left-color: #c41e3a;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+    .status.success {
+      border-left-color: #16a34a;
+      background: #f0fdf4;
+      color: #15803d;
+    }
+    .info-box {
+      padding: 12px;
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      margin-bottom: 16px;
+      font-size: 0.875rem;
+      color: #555;
+    }
+    .batch-input {
+      margin-bottom: 16px;
+      padding: 16px;
+      background: #fafafa;
+      border: 1px solid #ddd;
+    }
+    .batch-input h5 {
+      margin-bottom: 12px;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .button-group {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .field-group {
+      margin-bottom: 20px;
+    }
+    @media (max-width: 768px) {
+      main { padding: 16px; }
+      .card-body { padding: 16px; }
+      .tabs { flex-wrap: nowrap; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WhatsApp Automation Console</h1>
+  </header>
+
+  <main>
+    <!-- Authentication Section -->
+    <div class="card" id="authSection">
+      <div class="card-header">Connect WhatsApp Session</div>
+      <div class="card-body">
+        <div class="field-group">
+          <label for="code">Authentication code</label>
+          <input id="code" type="password" placeholder="Enter your auth code" autocomplete="one-time-code" required/>
+        </div>
+        <button id="startSessionBtn" type="button">Start session</button>
+      </div>
+    </div>
+
+    <!-- QR Code Section -->
+    <div class="card hidden" id="qrBox">
+      <div class="card-header">WhatsApp QR Authentication</div>
+      <div class="card-body">
+        <div class="info-box">
+          Open WhatsApp on your phone → Settings → Linked Devices → Link a Device → Scan the QR code below
+        </div>
+        <img id="qrImg" alt="WhatsApp QR code"/>
+      </div>
+    </div>
+
+    <!-- Main Control Panel (Tabbed) -->
+    <div class="card hidden" id="controlPanel">
+      <div class="control-bar">
+        <div class="session-indicator" id="sessionIndicator" aria-live="polite">Not connected</div>
+        <button id="logoutBtn" type="button" class="secondary small hidden">Logout</button>
+      </div>
+      <div class="tabs">
+        <button class="tab-button active" data-tab="aiConfig">AI Configuration</button>
+        <button class="tab-button" data-tab="customReplies">Custom Replies</button>
+        <button class="tab-button" data-tab="bulkMessages">Bulk Messaging</button>
+        <button class="tab-button" data-tab="scheduling">Scheduling</button>
+      </div>
+
+      <!-- AI Configuration Tab -->
+      <div class="tab-content active" id="aiConfig">
+        <div class="field-group">
+          <div class="grid">
+            <div>
+              <label for="apiKey">Gemini API key *</label>
+              <input id="apiKey" type="password" placeholder="Enter your API key" autocomplete="off" required/>
+            </div>
+            <div>
+              <label for="model">Model name *</label>
+              <input id="model" type="text" placeholder="gemini-1.5-flash" required/>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="systemPrompt">System prompt (optional)</label>
+          <textarea id="systemPrompt" rows="4" placeholder="Define the assistant's personality, tone, and context here"></textarea>
+        </div>
+
+        <div class="field-group">
+          <div class="toggle-row">
+            <input type="checkbox" id="autoReplyEnabled" checked>
+            <label for="autoReplyEnabled">Enable automatic AI replies</label>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="contextWindow">Conversation memory (messages to retain: 10-100)</label>
+          <input id="contextWindow" type="number" min="10" max="100" value="50">
+          <div class="info-box">
+            The AI will remember the last N messages from each conversation to provide contextual responses.
+          </div>
+        </div>
+
+        <button id="saveAiBtn" type="button">Save AI configuration</button>
+        <div id="aiStatus" class="status hidden" aria-live="polite"></div>
+      </div>
+
+      <!-- Custom Replies Tab -->
+      <div class="tab-content" id="customReplies">
+        <div class="info-box">
+          Custom replies trigger before AI processing. Use them for FAQs, greetings, or keyword-based responses.
+        </div>
+
+        <div class="batch-input">
+          <h5>Add custom reply rules</h5>
+          <div class="grid">
+            <div>
+              <label for="customTrigger">Trigger text</label>
+              <input id="customTrigger" type="text" placeholder="E.g., pricing, hello, help"/>
+            </div>
+            <div>
+              <label for="customMatchType">Match type</label>
+              <select id="customMatchType">
+                <option value="contains">Contains (case-insensitive)</option>
+                <option value="exact">Exact match</option>
+                <option value="startsWith">Starts with</option>
+                <option value="regex">Regular expression</option>
+              </select>
+            </div>
+          </div>
+          <label for="customResponse">Response message</label>
+          <textarea id="customResponse" rows="3" placeholder="The message to send when this trigger matches"></textarea>
+          <button id="addCustomReplyBtn" type="button" class="secondary">Add reply rule</button>
+        </div>
+
+        <div class="field-group">
+          <h5>Batch import (one rule per line)</h5>
+          <textarea id="batchCustomReplies" rows="6" placeholder="Format: trigger|matchType|response
+Example:
+hello|contains|Hi there! How can I help you?
+pricing|startsWith|Our pricing starts at $99/month
+support|exact|Contact support@example.com"></textarea>
+          <button id="importBatchBtn" type="button" class="secondary">Import batch rules</button>
+        </div>
+
+        <table id="customRepliesTable" class="hidden">
+          <thead>
+            <tr>
+              <th>Trigger</th>
+              <th>Match type</th>
+              <th>Response</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <div class="button-group" style="margin-top: 16px;">
+          <button id="saveCustomRepliesBtn" type="button">Save custom replies</button>
+          <button id="clearAllRepliesBtn" type="button" class="danger">Clear all</button>
+        </div>
+        <div id="customReplyStatus" class="status hidden" aria-live="polite"></div>
+      </div>
+
+      <!-- Bulk Messaging Tab -->
+      <div class="tab-content" id="bulkMessages">
+        <div class="info-box">
+          Send the same message to multiple recipients. Numbers should include country codes (e.g., +1234567890).
+        </div>
+
+        <div class="field-group">
+          <label for="bulkNumbers">Recipient phone numbers</label>
+          <textarea id="bulkNumbers" rows="6" placeholder="Enter phone numbers (one per line, comma, or space-separated):
++15551234567
++447700900123"></textarea>
+        </div>
+
+        <div class="field-group">
+          <label for="bulkCsv">Or import from CSV/TXT file</label>
+          <input type="file" id="bulkCsv" accept=".csv,.txt"/>
+        </div>
+
+        <div class="field-group">
+          <label for="bulkMessage">Message content *</label>
+          <textarea id="bulkMessage" rows="5" placeholder="Type your broadcast message here" required></textarea>
+        </div>
+
+        <button id="sendBulkBtn" type="button">Send bulk message</button>
+        <div id="bulkStatus" class="status hidden" aria-live="polite"></div>
+      </div>
+
+      <!-- Scheduling Tab -->
+      <div class="tab-content" id="scheduling">
+        <div class="info-box">
+          Schedule messages to be sent at a future time. Scheduled jobs are executed automatically by the server.
+        </div>
+
+        <div class="grid">
+          <div class="field-group">
+            <label for="scheduleDateTime">Scheduled send time *</label>
+            <input id="scheduleDateTime" type="datetime-local" required>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="scheduleNumbers">Recipient phone numbers *</label>
+          <textarea id="scheduleNumbers" rows="5" placeholder="Enter phone numbers (one per line):
++15551234567
++918888777766"></textarea>
+        </div>
+
+        <div class="field-group">
+          <label for="scheduleMessage">Message content *</label>
+          <textarea id="scheduleMessage" rows="5" placeholder="Message to be delivered at the scheduled time" required></textarea>
+        </div>
+
+        <button id="createScheduleBtn" type="button">Schedule message</button>
+        <div id="scheduleStatus" class="status hidden" aria-live="polite"></div>
+
+        <h4 style="margin-top: 32px; margin-bottom: 12px;">Scheduled messages</h4>
+        <button id="refreshScheduleBtn" type="button" class="secondary small">Refresh list</button>
+        
+        <table id="scheduleTable" class="hidden">
+          <thead>
+            <tr>
+              <th>Send at</th>
+              <th>Status</th>
+              <th>Recipients</th>
+              <th>Message preview</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

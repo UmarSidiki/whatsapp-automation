@@ -1,0 +1,64 @@
+"use strict";
+
+const {
+  isAuthorized,
+  ensureSession,
+  destroySession,
+  getSession,
+} = require("../services/sessionService");
+
+async function startSession(req, res) {
+  const code = String(req.body?.code || "").trim();
+  if (!code) {
+    return res.status(400).json({ error: "Code is required" });
+  }
+
+  if (!isAuthorized(code)) {
+    return res.status(401).json({ error: "Invalid code" });
+  }
+
+  await ensureSession(code);
+  return res.json({ success: true });
+}
+
+async function endSession(req, res) {
+  const code = String(req.params?.code || "").trim();
+  if (!code) {
+    return res.status(400).json({ error: "Code is required" });
+  }
+
+  if (!isAuthorized(code)) {
+    return res.status(401).json({ error: "Invalid code" });
+  }
+
+  const removed = await destroySession(code);
+  if (!removed) {
+    return res.status(404).json({ error: "No active session" });
+  }
+
+  return res.json({ success: true });
+}
+
+function sessionStatus(req, res) {
+  const code = String(req.params?.code || "").trim();
+  if (!code) {
+    return res.status(400).json({ error: "Code is required" });
+  }
+
+  if (!isAuthorized(code)) {
+    return res.status(401).json({ error: "Invalid code" });
+  }
+
+  const session = getSession(code);
+  if (!session) {
+    return res.status(404).json({ error: "No active session" });
+  }
+
+  return res.json({ active: true, ready: Boolean(session.ready) });
+}
+
+module.exports = {
+  startSession,
+  endSession,
+  sessionStatus,
+};
