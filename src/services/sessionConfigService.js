@@ -43,19 +43,24 @@ function sanitizeCustomRepliesForStorage(customReplies) {
 
 function sanitizeAiConfigForStorage(aiConfig) {
   if (!aiConfig || typeof aiConfig !== "object") {
-    return { config: null, apiKey: "" };
+    return { config: null, apiKey: "", speechToTextApiKey: "", textToSpeechApiKey: "" };
   }
 
   const apiKey = typeof aiConfig.apiKey === "string" ? aiConfig.apiKey.trim() : "";
+  const speechToTextApiKey = typeof aiConfig.speechToTextApiKey === "string" ? aiConfig.speechToTextApiKey.trim() : "";
+  const textToSpeechApiKey = typeof aiConfig.textToSpeechApiKey === "string" ? aiConfig.textToSpeechApiKey.trim() : "";
 
   const sanitizedConfig = {
     model: aiConfig.model || "",
     systemPrompt: aiConfig.systemPrompt,
     autoReplyEnabled: aiConfig.autoReplyEnabled !== false,
     contextWindow: aiConfig.contextWindow,
+    voiceReplyEnabled: aiConfig.voiceReplyEnabled || false,
+    voiceLanguage: aiConfig.voiceLanguage || "en-US",
+    voiceGender: aiConfig.voiceGender || "NEUTRAL",
   };
 
-  return { config: sanitizedConfig, apiKey };
+  return { config: sanitizedConfig, apiKey, speechToTextApiKey, textToSpeechApiKey };
 }
 
 function hasCustomRepliesPayload(value) {
@@ -77,8 +82,10 @@ async function saveSessionConfig(sessionCode, { aiConfig, customReplies } = {}) 
   const unsetPayload = {};
 
   if (typeof aiConfig !== "undefined") {
-    const { config: sanitizedAiConfig, apiKey } = sanitizeAiConfigForStorage(aiConfig);
+    const { config: sanitizedAiConfig, apiKey, speechToTextApiKey, textToSpeechApiKey } = sanitizeAiConfigForStorage(aiConfig);
     const hasApiKeyField = Object.prototype.hasOwnProperty.call(aiConfig, "apiKey");
+    const hasSpeechToTextApiKeyField = Object.prototype.hasOwnProperty.call(aiConfig, "speechToTextApiKey");
+    const hasTextToSpeechApiKeyField = Object.prototype.hasOwnProperty.call(aiConfig, "textToSpeechApiKey");
 
     if (sanitizedAiConfig) {
       setPayload.aiConfig = sanitizedAiConfig;
@@ -86,11 +93,28 @@ async function saveSessionConfig(sessionCode, { aiConfig, customReplies } = {}) 
       unsetPayload.aiConfig = "";
     }
 
+    // Handle Gemini API key
     if (apiKey) {
       setPayload["credentials.gemini.apiKey"] = apiKey;
       setPayload["credentials.gemini.updatedAt"] = now;
     } else if (hasApiKeyField) {
       unsetPayload["credentials.gemini"] = "";
+    }
+
+    // Handle Speech-to-Text API key
+    if (speechToTextApiKey) {
+      setPayload["credentials.googleCloud.speechToTextApiKey"] = speechToTextApiKey;
+      setPayload["credentials.googleCloud.speechToTextUpdatedAt"] = now;
+    } else if (hasSpeechToTextApiKeyField) {
+      unsetPayload["credentials.googleCloud.speechToTextApiKey"] = "";
+    }
+
+    // Handle Text-to-Speech API key
+    if (textToSpeechApiKey) {
+      setPayload["credentials.googleCloud.textToSpeechApiKey"] = textToSpeechApiKey;
+      setPayload["credentials.googleCloud.textToSpeechUpdatedAt"] = now;
+    } else if (hasTextToSpeechApiKeyField) {
+      unsetPayload["credentials.googleCloud.textToSpeechApiKey"] = "";
     }
   }
 

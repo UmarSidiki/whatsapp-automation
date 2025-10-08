@@ -46,10 +46,19 @@ const aiConfigSchema = z
     autoReplyEnabled: z.any().optional(),
     contextWindow: z.any().optional(),
     customReplies: z.array(customReplyEntrySchema).optional(),
+    voiceReplyEnabled: z.any().optional(),
+    speechToTextApiKey: z.any().optional(),
+    textToSpeechApiKey: z.any().optional(),
+    voiceLanguage: z.any().optional(),
+    voiceGender: z.any().optional(),
   })
   .transform((data) => {
     const reuseStoredApiKey = coerceBoolean(data.reuseStoredApiKey, false);
     const apiKey = typeof data.apiKey === "string" ? data.apiKey.trim() : "";
+    const speechToTextApiKey = typeof data.speechToTextApiKey === "string" ? data.speechToTextApiKey.trim() : "";
+    const textToSpeechApiKey = typeof data.textToSpeechApiKey === "string" ? data.textToSpeechApiKey.trim() : "";
+    const voiceLanguage = typeof data.voiceLanguage === "string" ? data.voiceLanguage.trim() : "en-US";
+    const voiceGender = typeof data.voiceGender === "string" ? data.voiceGender.trim() : "NEUTRAL";
 
     return {
       apiKey,
@@ -59,6 +68,11 @@ const aiConfigSchema = z
       autoReplyEnabled: coerceBoolean(data.autoReplyEnabled, true),
       contextWindow: clampContextWindow(data.contextWindow ?? DEFAULT_CONTEXT_WINDOW),
       customReplies: Array.isArray(data.customReplies) ? data.customReplies : [],
+      voiceReplyEnabled: coerceBoolean(data.voiceReplyEnabled, false),
+      speechToTextApiKey,
+      textToSpeechApiKey,
+      voiceLanguage,
+      voiceGender,
     };
   })
   .superRefine((data, ctx) => {

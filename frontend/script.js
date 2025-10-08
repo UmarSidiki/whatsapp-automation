@@ -6,6 +6,8 @@ const state = {
   qrIntervalId: null,
   scheduleJobs: [],
   hasStoredApiKey: false,
+  hasStoredSpeechToTextApiKey: false,
+  hasStoredTextToSpeechApiKey: false,
 };
 
 const elements = {};
@@ -69,6 +71,21 @@ function cacheElements() {
   elements.scheduleTableBody = elements.scheduleTable?.querySelector('tbody');
   elements.createScheduleBtn = document.getElementById('createScheduleBtn');
   elements.refreshScheduleBtn = document.getElementById('refreshScheduleBtn');
+  
+  // Utils / Voice
+  elements.voiceReplyEnabled = document.getElementById('voiceReplyEnabled');
+  elements.speechToTextApiKey = document.getElementById('speechToTextApiKey');
+  elements.speechToTextApiKeyHint = document.getElementById('speechToTextApiKeyHint');
+  elements.textToSpeechApiKey = document.getElementById('textToSpeechApiKey');
+  elements.textToSpeechApiKeyHint = document.getElementById('textToSpeechApiKeyHint');
+  elements.voiceLanguage = document.getElementById('voiceLanguage');
+  elements.voiceGender = document.getElementById('voiceGender');
+  elements.saveVoiceConfigBtn = document.getElementById('saveVoiceConfigBtn');
+  elements.voiceConfigStatus = document.getElementById('voiceConfigStatus');
+  elements.voiceApiStatusBox = document.getElementById('voiceApiStatusBox');
+  elements.geminiKeyStatus = document.getElementById('geminiKeyStatus');
+  elements.speechToTextKeyStatus = document.getElementById('speechToTextKeyStatus');
+  elements.textToSpeechKeyStatus = document.getElementById('textToSpeechKeyStatus');
 }
 
 function showElement(element, visible) {
@@ -129,6 +146,8 @@ function resetUiToLoggedOut() {
   state.customReplies = [];
   state.scheduleJobs = [];
   state.hasStoredApiKey = false;
+  state.hasStoredSpeechToTextApiKey = false;
+  state.hasStoredTextToSpeechApiKey = false;
   showElement(elements.authSection, true);
   showElement(elements.qrBox, false);
   showElement(elements.controlPanel, false);
@@ -356,6 +375,72 @@ async function loadAiConfig() {
     elements.systemPrompt.value = sanitizeHTML(config.systemPrompt || '');
     elements.autoReplyEnabled.checked = config.autoReplyEnabled !== false;
     elements.contextWindow.value = Number(config.contextWindow) || 50;
+    
+    // Load voice settings
+    if (elements.voiceReplyEnabled) {
+      elements.voiceReplyEnabled.checked = config.voiceReplyEnabled || false;
+    }
+    if (elements.speechToTextApiKey) {
+      const speechToTextKey = sanitizeHTML(config.speechToTextApiKey || '');
+      elements.speechToTextApiKey.value = speechToTextKey;
+      state.hasStoredSpeechToTextApiKey = Boolean(speechToTextKey || config.hasSpeechToTextApiKey);
+      elements.speechToTextApiKey.placeholder = state.hasStoredSpeechToTextApiKey
+        ? 'Speech-to-Text API key loaded from secure storage'
+        : 'Google Cloud Speech-to-Text API key';
+      
+      // Show/hide hint for Speech-to-Text API key
+      if (elements.speechToTextApiKeyHint) {
+        if (state.hasStoredSpeechToTextApiKey) {
+          elements.speechToTextApiKeyHint.textContent = '✓ API key loaded from database. Update to replace or clear to reuse stored key.';
+          elements.speechToTextApiKeyHint.classList.remove('hidden');
+          elements.speechToTextApiKeyHint.style.color = '#16a34a'; // Green
+        } else {
+          elements.speechToTextApiKeyHint.textContent = '';
+          elements.speechToTextApiKeyHint.classList.add('hidden');
+        }
+      }
+    }
+    if (elements.textToSpeechApiKey) {
+      const textToSpeechKey = sanitizeHTML(config.textToSpeechApiKey || '');
+      elements.textToSpeechApiKey.value = textToSpeechKey;
+      state.hasStoredTextToSpeechApiKey = Boolean(textToSpeechKey || config.hasTextToSpeechApiKey);
+      elements.textToSpeechApiKey.placeholder = state.hasStoredTextToSpeechApiKey
+        ? 'Text-to-Speech API key loaded from secure storage'
+        : 'Google Cloud Text-to-Speech API key';
+      
+      // Show/hide hint for Text-to-Speech API key
+      if (elements.textToSpeechApiKeyHint) {
+        if (state.hasStoredTextToSpeechApiKey) {
+          elements.textToSpeechApiKeyHint.textContent = '✓ API key loaded from database. Update to replace or clear to reuse stored key.';
+          elements.textToSpeechApiKeyHint.classList.remove('hidden');
+          elements.textToSpeechApiKeyHint.style.color = '#16a34a'; // Green
+        } else {
+          elements.textToSpeechApiKeyHint.textContent = '';
+          elements.textToSpeechApiKeyHint.classList.add('hidden');
+        }
+      }
+    }
+    if (elements.voiceLanguage) {
+      elements.voiceLanguage.value = sanitizeHTML(config.voiceLanguage || 'en-US');
+    }
+    if (elements.voiceGender) {
+      elements.voiceGender.value = sanitizeHTML(config.voiceGender || 'NEUTRAL');
+    }
+    
+    // Update API keys status box
+    if (elements.voiceApiStatusBox && elements.geminiKeyStatus && elements.speechToTextKeyStatus && elements.textToSpeechKeyStatus) {
+      const hasAnyStoredKey = state.hasStoredApiKey || state.hasStoredSpeechToTextApiKey || state.hasStoredTextToSpeechApiKey;
+      
+      if (hasAnyStoredKey) {
+        showElement(elements.voiceApiStatusBox, true);
+        showElement(elements.geminiKeyStatus, state.hasStoredApiKey);
+        showElement(elements.speechToTextKeyStatus, state.hasStoredSpeechToTextApiKey);
+        showElement(elements.textToSpeechKeyStatus, state.hasStoredTextToSpeechApiKey);
+      } else {
+        showElement(elements.voiceApiStatusBox, false);
+      }
+    }
+    
     renderCustomReplies();
   } catch (error) {
     console.error('Load AI config error', error);
@@ -536,6 +621,11 @@ async function saveAiConfig() {
     autoReplyEnabled: elements.autoReplyEnabled.checked,
     contextWindow,
     customReplies: state.customReplies,
+    voiceReplyEnabled: elements.voiceReplyEnabled?.checked || false,
+    speechToTextApiKey: elements.speechToTextApiKey?.value.trim() || '',
+    textToSpeechApiKey: elements.textToSpeechApiKey?.value.trim() || '',
+    voiceLanguage: elements.voiceLanguage?.value || 'en-US',
+    voiceGender: elements.voiceGender?.value || 'NEUTRAL',
   };
 
   try {
@@ -547,13 +637,29 @@ async function saveAiConfig() {
     const data = await res.json();
     if (data.success) {
       setStatus(elements.aiStatus, 'AI configuration saved successfully', 'success');
+      setStatus(elements.voiceConfigStatus, 'Voice configuration saved successfully', 'success');
       const savedConfig = data.config || {};
+      const persistedInfo = data.persisted || {};
+      
+      // Update Gemini API key state
       const savedKey = typeof savedConfig.apiKey === 'string' ? savedConfig.apiKey : apiKey;
       elements.apiKey.value = savedKey;
-      state.hasStoredApiKey = Boolean(savedKey || savedConfig.hasApiKey || reuseStoredApiKey);
+      state.hasStoredApiKey = Boolean(savedKey || savedConfig.hasApiKey || persistedInfo.hasApiKey || reuseStoredApiKey);
+      
+      // Update voice API keys state
+      state.hasStoredSpeechToTextApiKey = Boolean(
+        savedConfig.speechToTextApiKey || 
+        persistedInfo.hasSpeechToTextApiKey
+      );
+      state.hasStoredTextToSpeechApiKey = Boolean(
+        savedConfig.textToSpeechApiKey || 
+        persistedInfo.hasTextToSpeechApiKey
+      );
+      
       await loadAiConfig();
     } else {
       setStatus(elements.aiStatus, data.error || 'Failed to save configuration', 'error');
+      setStatus(elements.voiceConfigStatus, data.error || 'Failed to save configuration', 'error');
     }
   } catch (error) {
     console.error('Save AI config error', error);
@@ -832,6 +938,9 @@ document.addEventListener('DOMContentLoaded', () => {
   elements.createScheduleBtn?.addEventListener('click', createSchedule);
   elements.refreshScheduleBtn?.addEventListener('click', fetchScheduledMessages);
   elements.scheduleTableBody?.addEventListener('click', handleScheduleTableClick);
+  
+  // Utils / Voice
+  elements.saveVoiceConfigBtn?.addEventListener('click', saveAiConfig);
 
   resumeSessionFromStorage().catch(err => console.error('Startup resume error', err));
 });

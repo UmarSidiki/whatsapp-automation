@@ -36,9 +36,25 @@ async function configureAi(req, res) {
     return res.status(400).json({ error: "API key is required" });
   }
 
+  // Handle voice API keys - allow empty if voice is disabled
+  let speechToTextApiKey = sanitizedConfig.speechToTextApiKey || "";
+  let textToSpeechApiKey = sanitizedConfig.textToSpeechApiKey || "";
+  
+  // If keys are not provided but voice is enabled, try to reuse stored keys
+  if (sanitizedConfig.voiceReplyEnabled) {
+    if (!speechToTextApiKey && session.aiConfig?.speechToTextApiKey) {
+      speechToTextApiKey = session.aiConfig.speechToTextApiKey;
+    }
+    if (!textToSpeechApiKey && session.aiConfig?.textToSpeechApiKey) {
+      textToSpeechApiKey = session.aiConfig.textToSpeechApiKey;
+    }
+  }
+
   const updatedConfig = updateAiConfig(req.params.code, {
     ...sanitizedConfig,
     apiKey,
+    speechToTextApiKey,
+    textToSpeechApiKey,
   });
 
   try {
@@ -62,12 +78,14 @@ async function configureAi(req, res) {
     persisted: {
       updatedAt: persisted?.updatedAt,
       hasApiKey: Boolean(persisted?.credentials?.gemini?.apiKey),
+      hasSpeechToTextApiKey: Boolean(persisted?.credentials?.googleCloud?.speechToTextApiKey),
+      hasTextToSpeechApiKey: Boolean(persisted?.credentials?.googleCloud?.textToSpeechApiKey),
       model: persisted?.aiConfig?.model,
     },
   });
 }
 
-function getAiConfigHandler(req, res) {
+async function getAiConfigHandler(req, res) {
   const session = getSession(req.params.code);
   if (!session) {
     return res.status(404).json({ error: "No session found" });
@@ -82,7 +100,27 @@ function getAiConfigHandler(req, res) {
       autoReplyEnabled: true,
       contextWindow: DEFAULT_CONTEXT_WINDOW,
       customReplies: [],
+      voiceReplyEnabled: false,
+      speechToTextApiKey: "",
+      textToSpeechApiKey: "",
+      voiceLanguage: "en-US",
+      voiceGender: "NEUTRAL",
     };
+
+  // Load persisted data to check if API keys are stored in database
+  let persisted;
+  try {
+    persisted = await loadSessionConfig(req.params.code);
+  } catch (error) {
+    logger.debug({ err: error, code: req.params.code }, "Failed to load persisted config for status check");
+  }
+
+  // Add flags to indicate if API keys are stored in database
+  if (persisted) {
+    config.hasApiKey = Boolean(persisted.credentials?.gemini?.apiKey);
+    config.hasSpeechToTextApiKey = Boolean(persisted.credentials?.googleCloud?.speechToTextApiKey);
+    config.hasTextToSpeechApiKey = Boolean(persisted.credentials?.googleCloud?.textToSpeechApiKey);
+  }
 
   return res.json({ config });
 }

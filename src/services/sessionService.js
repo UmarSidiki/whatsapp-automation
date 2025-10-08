@@ -13,6 +13,8 @@ const {
   MAX_SCHEDULE_DELAY_MS,
 } = require("../constants");
 const { generateReply } = require("./geminiService");
+const { transcribeAudio } = require("./speechToTextService");
+const { synthesizeSpeech } = require("./textToSpeechService");
 const {
   queueMessageForPersistence,
   flushSessionMessages,
@@ -309,11 +311,60 @@ function registerEventHandlers(code, state) {
   state.client.on("message", async (msg) => {
     const current = sessions.get(code);
     if (!current || !current.ready) return;
-    if (!msg || typeof msg.body !== "string") return;
     if (msg.from.includes("@g.us")) return;
 
-    const text = msg.body.trim();
-    if (!text) return;
+    // Handle voice messages if voice reply is enabled
+    const config = current.aiConfig;
+    const isVoiceMessage = msg.hasMedia && msg.type === "ptt"; // ptt = push-to-talk (voice note)
+    
+    let text = "";
+    
+    if (isVoiceMessage && config?.voiceReplyEnabled && config?.speechToTextApiKey) {
+      try {
+        logger.debug({ code, chatId: msg.from }, "Processing voice message");
+        
+        // Download the audio
+        const media = await msg.downloadMedia();
+        if (!media || !media.data) {
+          logger.warn({ code, chatId: msg.from }, "Failed to download voice message media");
+          await safeReply(msg, "❌ Sorry, I couldn't download your voice message. Please try again.", false);
+          return;
+        }
+
+        // Convert base64 to buffer
+        const audioBuffer = Buffer.from(media.data, "base64");
+        
+        // Transcribe the audio
+        text = await transcribeAudio(
+          audioBuffer,
+          config.speechToTextApiKey,
+          config.voiceLanguage || "en-US"
+        );
+        
+        if (!text || !text.trim()) {
+          logger.debug({ code, chatId: msg.from }, "Voice message transcription returned empty text");
+          await safeReply(msg, "🎤 Sorry, I couldn't understand your voice message. Please try speaking more clearly or send text.", false);
+          return;
+        }
+        
+        logger.info(
+          { code, chatId: msg.from, transcribedLength: text.length },
+          "Voice message transcribed successfully"
+        );
+      } catch (error) {
+        logger.error(
+          { err: error, code, chatId: msg.from },
+          "Failed to process voice message"
+        );
+        await safeReply(msg, "❌ Sorry, there was an error processing your voice message. Please try sending it as text.", false);
+        return;
+      }
+    } else {
+      // Regular text message
+      if (!msg || typeof msg.body !== "string") return;
+      text = msg.body.trim();
+      if (!text) return;
+    }
 
     const chatId = msg.from;
 
@@ -344,7 +395,7 @@ function registerEventHandlers(code, state) {
     // Ignore commands sent by the client itself (fromMe).
     if (!msg.fromMe && text.toLowerCase() === "!stop") {
       current.stopList.set(chatId, Date.now());
-      await safeReply(msg, "🤖 Auto replies disabled for 24 hours.");
+      await safeReply(msg, "🤖 Auto replies disabled for 24 hours.", false);
       return;
     }
 
@@ -352,9 +403,9 @@ function registerEventHandlers(code, state) {
     if (!msg.fromMe && text.toLowerCase() === "!start") {
       if (current.stopList.has(chatId)) {
         current.stopList.delete(chatId);
-        await safeReply(msg, "🤖 Auto replies re-enabled. I'll reply as usual.");
+        await safeReply(msg, "🤖 Auto replies re-enabled. I'll reply as usual.", false);
       } else {
-        await safeReply(msg, "🤖 Auto replies are already enabled.");
+        await safeReply(msg, "🤖 Auto replies are already enabled.", false);
       }
       return;
     }
@@ -369,13 +420,13 @@ function registerEventHandlers(code, state) {
     appendHistoryEntry(current, chatId, { role: "user", text });
     persistChatMessage(code, chatId, "incoming", text);
 
-    const config = current.aiConfig;
     if (!config) return;
 
     const customReply = findCustomReply(config.customReplies, text);
     if (customReply) {
       try {
-        await safeReply(msg, customReply);
+        const shouldSendAsVoice = isVoiceMessage && config.voiceReplyEnabled && config.textToSpeechApiKey;
+        await safeReply(msg, customReply, shouldSendAsVoice, config);
         appendHistoryEntry(current, chatId, {
           role: "assistant",
           text: customReply,
@@ -401,19 +452,69 @@ function registerEventHandlers(code, state) {
       const history = getHistoryForChat(current, chatId, contextWindow);
       const reply = await generateReply(config, history);
       if (reply) {
-        await safeReply(msg, reply);
+        const shouldSendAsVoice = isVoiceMessage && config.voiceReplyEnabled && config.textToSpeechApiKey;
+        await safeReply(msg, reply, shouldSendAsVoice, config);
         appendHistoryEntry(current, chatId, { role: "assistant", text: reply });
         persistChatMessage(code, chatId, "outgoing", reply);
+      } else {
+        // If no reply (likely due to timeout), send a fallback message
+        if (isVoiceMessage) {
+          await safeReply(msg, "⏱️ Sorry, the AI took too long to respond to your voice message. Please try again.", false);
+        }
       }
     } catch (error) {
       logger.error({ err: error, chatId }, "AI reply error");
+      // Send user-friendly error message for voice messages
+      if (isVoiceMessage) {
+        try {
+          await safeReply(msg, "❌ Sorry, I couldn't process your voice message. Please try sending it as text.", false);
+        } catch (replyError) {
+          logger.error({ err: replyError, chatId }, "Failed to send error notification");
+        }
+      }
     }
   });
 }
 
-async function safeReply(msg, text) {
+async function safeReply(msg, text, sendAsVoice = false, config = null) {
   try {
-    await msg.reply(text);
+    if (sendAsVoice && config && config.textToSpeechApiKey) {
+      // Generate voice message
+      try {
+        const audioBuffer = await synthesizeSpeech(
+          text,
+          config.textToSpeechApiKey,
+          {
+            languageCode: config.voiceLanguage || "en-US",
+            gender: config.voiceGender || "NEUTRAL",
+          }
+        );
+
+        const { MessageMedia } = getWhatsAppDeps();
+        const media = new MessageMedia(
+          "audio/ogg; codecs=opus",
+          audioBuffer.toString("base64"),
+          "voice.ogg"
+        );
+
+        await msg.reply(media, undefined, { sendAudioAsVoice: true });
+        
+        logger.debug(
+          { to: msg.from, textLength: text.length, audioSize: audioBuffer.length },
+          "Sent voice message reply"
+        );
+      } catch (voiceError) {
+        logger.error(
+          { err: voiceError, to: msg.from },
+          "Failed to send voice reply, falling back to text"
+        );
+        // Fallback to text if voice fails
+        await msg.reply(text);
+      }
+    } else {
+      // Send as regular text message
+      await msg.reply(text);
+    }
   } catch (error) {
     logger.error({ err: error, to: msg.from }, "Failed to send reply");
   }

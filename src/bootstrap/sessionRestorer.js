@@ -31,15 +31,34 @@ async function applyPersistedAiConfig(code) {
     }
 
     const persistedAi = persisted.aiConfig || {};
-    const persistedCreds = persisted.credentials?.gemini || {};
+    const persistedCreds = persisted.credentials || {};
+    const geminiCreds = persistedCreds.gemini || {};
+    const googleCloudCreds = persistedCreds.googleCloud || {};
+    
+    // Get Gemini API key
     const apiKey =
-      (typeof persistedCreds.apiKey === "string" && persistedCreds.apiKey.trim()) ||
+      (typeof geminiCreds.apiKey === "string" && geminiCreds.apiKey.trim()) ||
       (typeof persistedAi.apiKey === "string" && persistedAi.apiKey.trim()) ||
+      "";
+
+    // Get Google Cloud API keys for voice features
+    const speechToTextApiKey =
+      (typeof googleCloudCreds.speechToTextApiKey === "string" && googleCloudCreds.speechToTextApiKey.trim()) ||
+      "";
+    
+    const textToSpeechApiKey =
+      (typeof googleCloudCreds.textToSpeechApiKey === "string" && googleCloudCreds.textToSpeechApiKey.trim()) ||
       "";
 
     const toApply = { ...persistedAi };
     if (apiKey) {
       toApply.apiKey = apiKey;
+    }
+    if (speechToTextApiKey) {
+      toApply.speechToTextApiKey = speechToTextApiKey;
+    }
+    if (textToSpeechApiKey) {
+      toApply.textToSpeechApiKey = textToSpeechApiKey;
     }
 
     if (Object.keys(toApply).length) {

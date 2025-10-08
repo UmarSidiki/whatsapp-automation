@@ -16,7 +16,7 @@ const EnvSchema = z
     JSON_BODY_LIMIT: z.string().default("1mb"),
     RATE_LIMIT_MAX: z.coerce.number().default(120),
     AUTH_RATE_LIMIT_MAX: z.coerce.number().default(20),
-    AI_TIMEOUT_MS: z.coerce.number().default(15000),
+    AI_TIMEOUT_MS: z.coerce.number().default(30000), // Increased to 30s for voice message processing
     PUPPETEER_HEADLESS: z.string().optional(),
     GEMINI_BASE_URL: z.string().default("https://generativelanguage.googleapis.com"),
     STATIC_DIR: z.string().optional(),

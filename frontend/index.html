@@ -348,6 +348,7 @@
         <button class="tab-button" data-tab="customReplies">Custom Replies</button>
         <button class="tab-button" data-tab="bulkMessages">Bulk Messaging</button>
         <button class="tab-button" data-tab="scheduling">Scheduling</button>
+        <button class="tab-button" data-tab="utils">Utils</button>
       </div>
 
       <!-- AI Configuration Tab -->
@@ -520,6 +521,110 @@ support|exact|Contact support@example.com"></textarea>
           </thead>
           <tbody></tbody>
         </table>
+      </div>
+
+      <!-- Utils Tab -->
+      <div class="tab-content" id="utils">
+        <div class="info-box">
+          Configure voice message support using Google Cloud Speech-to-Text and Text-to-Speech APIs. 
+          When enabled, the bot will transcribe incoming voice messages and reply with voice messages.
+        </div>
+
+        <div id="voiceApiStatusBox" class="info-box hidden" style="background: #f0fdf4; border-color: #16a34a;">
+          <strong>✓ API Keys Status:</strong>
+          <ul style="margin: 8px 0 0 20px; padding: 0;">
+            <li id="geminiKeyStatus" class="hidden">Gemini API key stored in database</li>
+            <li id="speechToTextKeyStatus" class="hidden">Speech-to-Text API key stored in database</li>
+            <li id="textToSpeechKeyStatus" class="hidden">Text-to-Speech API key stored in database</li>
+          </ul>
+        </div>
+
+        <div class="field-group">
+          <div class="toggle-row">
+            <input type="checkbox" id="voiceReplyEnabled">
+            <label for="voiceReplyEnabled">Enable voice message replies</label>
+          </div>
+          <small class="help-text">
+            When enabled, the bot will transcribe voice messages and respond with voice messages.
+          </small>
+        </div>
+
+        <div class="field-group">
+          <h4 style="margin-bottom: 12px;">Google Cloud API Keys</h4>
+          <div class="grid">
+            <div>
+              <label for="speechToTextApiKey">Speech-to-Text API Key</label>
+              <input id="speechToTextApiKey" type="password" placeholder="Google Cloud Speech-to-Text API key" autocomplete="off"/>
+              <small id="speechToTextApiKeyHint" class="help-text hidden"></small>
+              <small class="help-text">
+                Required for transcribing voice messages to text.
+                <a href="https://cloud.google.com/speech-to-text/docs/before-you-begin" target="_blank" rel="noopener">Get API Key</a>
+              </small>
+            </div>
+            <div>
+              <label for="textToSpeechApiKey">Text-to-Speech API Key</label>
+              <input id="textToSpeechApiKey" type="password" placeholder="Google Cloud Text-to-Speech API key" autocomplete="off"/>
+              <small id="textToSpeechApiKeyHint" class="help-text hidden"></small>
+              <small class="help-text">
+                Required for converting AI responses to voice messages.
+                <a href="https://cloud.google.com/text-to-speech/docs/before-you-begin" target="_blank" rel="noopener">Get API Key</a>
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <h4 style="margin-bottom: 12px;">Voice Settings</h4>
+          <div class="grid">
+            <div>
+              <label for="voiceLanguage">Language Code</label>
+              <select id="voiceLanguage">
+                <option value="en-US">English (US)</option>
+                <option value="en-GB">English (UK)</option>
+                <option value="es-ES">Spanish (Spain)</option>
+                <option value="es-US">Spanish (US)</option>
+                <option value="fr-FR">French</option>
+                <option value="de-DE">German</option>
+                <option value="it-IT">Italian</option>
+                <option value="pt-BR">Portuguese (Brazil)</option>
+                <option value="pt-PT">Portuguese (Portugal)</option>
+                <option value="ja-JP">Japanese</option>
+                <option value="ko-KR">Korean</option>
+                <option value="zh-CN">Chinese (Simplified)</option>
+                <option value="zh-TW">Chinese (Traditional)</option>
+                <option value="ar-SA">Arabic</option>
+                <option value="hi-IN">Hindi</option>
+                <option value="ru-RU">Russian</option>
+                <option value="tr-TR">Turkish</option>
+                <option value="pl-PL">Polish</option>
+                <option value="nl-NL">Dutch</option>
+                <option value="sv-SE">Swedish</option>
+              </select>
+              <small class="help-text">
+                Language for speech recognition and synthesis.
+              </small>
+            </div>
+            <div>
+              <label for="voiceGender">Voice Gender</label>
+              <select id="voiceGender">
+                <option value="NEUTRAL">Neutral</option>
+                <option value="MALE">Male</option>
+                <option value="FEMALE">Female</option>
+              </select>
+              <small class="help-text">
+                Voice gender for Text-to-Speech output.
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <div class="info-box" style="background: #fff3cd; border-color: #ffc107; color: #856404;">
+          <strong>⚠️ Important:</strong> Voice message features require Google Cloud APIs with billing enabled. 
+          Make sure you have set up billing in your Google Cloud Console and enabled both Speech-to-Text and Text-to-Speech APIs.
+        </div>
+
+        <button id="saveVoiceConfigBtn" type="button">Save voice configuration</button>
+        <div id="voiceConfigStatus" class="status hidden" aria-live="polite"></div>
       </div>
     </div>
   </main>
