@@ -99,6 +99,8 @@ codes/                # Optional codes.json store
 5. Paste or upload recipients to broadcast bulk messages—results show successes and failures.
 6. Schedule messages in advance; monitor, cancel, or remove jobs from the schedule table. Scheduled runs survive restarts and resume automatically once the service is back online.
 7. Users can send `!stop` in the chat to disable automated replies for 24 hours, or `!start` to re-enable them early.
+   - **Note:** `!stop` disables **both text and voice** auto-replies. The bot will not process any messages (including voice transcription) from stopped users to save API costs.
+   - Users must send `!start` as a **text message** to re-enable auto-replies.
 
 ### API additions
 

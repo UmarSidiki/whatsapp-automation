@@ -313,12 +313,46 @@ function registerEventHandlers(code, state) {
     if (!current || !current.ready) return;
     if (msg.from.includes("@g.us")) return;
 
-    // Handle voice messages if voice reply is enabled
+    const chatId = msg.from;
     const config = current.aiConfig;
     const isVoiceMessage = msg.hasMedia && msg.type === "ptt"; // ptt = push-to-talk (voice note)
     
+    // Check timestamp first to skip old messages
+    const messageTimestampMs =
+      typeof msg.timestamp === "number" && msg.timestamp > 0
+        ? msg.timestamp * 1000
+        : typeof msg._data?.t === "number" && msg._data.t > 0
+        ? msg._data.t * 1000
+        : Date.now();
+
+    if (
+      current.startedAt &&
+      messageTimestampMs + MESSAGE_TIMESTAMP_TOLERANCE_MS < current.startedAt
+    ) {
+      logger.debug(
+        {
+          code,
+          chatId,
+          messageTimestampMs,
+          sessionStartedAt: current.startedAt,
+        },
+        "Skipping message received before session started"
+      );
+      return;
+    }
+
+    // Check stop list BEFORE processing voice (to save API costs)
+    const stopTime = current.stopList.get(chatId);
+    if (stopTime && Date.now() - stopTime < STOP_TIMEOUT_MS) {
+      logger.debug({ code, chatId }, "Message from stopped user - ignoring");
+      return;
+    } else if (stopTime) {
+      current.stopList.delete(chatId);
+    }
+    
     let text = "";
     
+    // Now process voice messages or text messages
     if (isVoiceMessage && config?.voiceReplyEnabled && config?.speechToTextApiKey) {
       try {
         logger.debug({ code, chatId: msg.from }, "Processing voice message");
@@ -366,33 +400,7 @@ function registerEventHandlers(code, state) {
       if (!text) return;
     }
 
-    const chatId = msg.from;
-
-    const messageTimestampMs =
-      typeof msg.timestamp === "number" && msg.timestamp > 0
-        ? msg.timestamp * 1000
-        : typeof msg._data?.t === "number" && msg._data.t > 0
-        ? msg._data.t * 1000
-        : Date.now();
-
-    if (
-      current.startedAt &&
-      messageTimestampMs + MESSAGE_TIMESTAMP_TOLERANCE_MS < current.startedAt
-    ) {
-      logger.debug(
-        {
-          code,
-          chatId,
-          messageTimestampMs,
-          sessionStartedAt: current.startedAt,
-        },
-        "Skipping message received before session started"
-      );
-      return;
-    }
-
-    // Allow the remote contact to opt-out for a period by sending !stopauto.
-    // Ignore commands sent by the client itself (fromMe).
+    // Handle !stop and !start commands
     if (!msg.fromMe && text.toLowerCase() === "!stop") {
       current.stopList.set(chatId, Date.now());
       await safeReply(msg, "🤖 Auto replies disabled for 24 hours.", false);
@@ -408,13 +416,6 @@ function registerEventHandlers(code, state) {
         await safeReply(msg, "🤖 Auto replies are already enabled.", false);
       }
       return;
-    }
-
-    const stopTime = current.stopList.get(chatId);
-    if (stopTime && Date.now() - stopTime < STOP_TIMEOUT_MS) {
-      return;
-    } else if (stopTime) {
-      current.stopList.delete(chatId);
     }
 
     appendHistoryEntry(current, chatId, { role: "user", text });
