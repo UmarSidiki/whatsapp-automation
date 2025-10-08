@@ -189,6 +189,7 @@ async function ensureSession(code) {
     ready: false,
     startedAt: Date.now(),
     aiConfig: null,
+    globalStop: { active: false, since: 0 }, // Initialize here
     stopList: new Map(),
     lastQrTimestamp: 0,
     chatHistory: new Map(),
@@ -287,6 +288,15 @@ function registerEventHandlers(code, state) {
   state.client.on("disconnected", (reason) => {
     logger.warn({ code, reason }, "WhatsApp client disconnected");
     state.ready = false;
+
+    // If the disconnection is due to logout, destroy the session completely.
+    if (reason === 'NAVIGATION' || reason?.includes('Logged out')) {
+        logger.info({ code }, "Session disconnected by user, destroying session.");
+        destroySession(code).catch(err => {
+            logger.error({ err, code }, "Error during automatic session destruction on logout.");
+        });
+        return; // Do not attempt to reconnect
+    }
     
     // Attempt to reconnect if not deliberately destroyed
     if (!state.destroyed) {
@@ -316,7 +326,7 @@ function registerEventHandlers(code, state) {
     const chatId = msg.from;
     const config = current.aiConfig;
     const isVoiceMessage = msg.hasMedia && msg.type === "ptt"; // ptt = push-to-talk (voice note)
-    
+
     // Check timestamp first to skip old messages
     const messageTimestampMs =
       typeof msg.timestamp === "number" && msg.timestamp > 0
@@ -341,6 +351,11 @@ function registerEventHandlers(code, state) {
       return;
     }
 
+    if (current.globalStop.active && !msg.fromMe) {
+      logger.debug({ code, chatId }, "Message ignored due to global stop");
+      return;
+    }
+
     // Check stop list BEFORE processing voice (to save API costs)
     const stopTime = current.stopList.get(chatId);
     if (stopTime && Date.now() - stopTime < STOP_TIMEOUT_MS) {
@@ -362,6 +377,7 @@ function registerEventHandlers(code, state) {
         if (!media || !media.data) {
           logger.warn({ code, chatId: msg.from }, "Failed to download voice message media");
           await safeReply(msg, "❌ Sorry, I couldn't download your voice message. Please try again.", false);
+          await markChatUnread(msg);
           return;
         }
 
@@ -378,6 +394,7 @@ function registerEventHandlers(code, state) {
         if (!text || !text.trim()) {
           logger.debug({ code, chatId: msg.from }, "Voice message transcription returned empty text");
           await safeReply(msg, "🎤 Sorry, I couldn't understand your voice message. Please try speaking more clearly or send text.", false);
+          await markChatUnread(msg);
           return;
         }
         
@@ -391,6 +408,7 @@ function registerEventHandlers(code, state) {
           "Failed to process voice message"
         );
         await safeReply(msg, "❌ Sorry, there was an error processing your voice message. Please try sending it as text.", false);
+        await markChatUnread(msg);
         return;
       }
     } else {
@@ -400,21 +418,52 @@ function registerEventHandlers(code, state) {
       if (!text) return;
     }
 
-    // Handle !stop and !start commands
-    if (!msg.fromMe && text.toLowerCase() === "!stop") {
-      current.stopList.set(chatId, Date.now());
-      await safeReply(msg, "🤖 Auto replies disabled for 24 hours.", false);
-      return;
-    }
+    const commandText = text.toLowerCase();
 
-    // Allow the remote contact to re-enable auto replies early.
-    if (!msg.fromMe && text.toLowerCase() === "!start") {
-      if (current.stopList.has(chatId)) {
-        current.stopList.delete(chatId);
-        await safeReply(msg, "🤖 Auto replies re-enabled. I'll reply as usual.", false);
-      } else {
-        await safeReply(msg, "🤖 Auto replies are already enabled.", false);
+    if (msg.fromMe) {
+      if (commandText === "!stopall") {
+        const wasActive = Boolean(current.globalStop.active);
+        if (!wasActive) {
+          current.globalStop.active = true;
+          current.globalStop.since = Date.now();
+        }
+        await safeReply(
+          msg,
+          wasActive
+            ? "🛑 Global auto replies are already disabled."
+            : "🛑 Global auto replies disabled. I'll stay quiet until you send !startall.",
+          false
+        );
+        return;
+      } else if (commandText === "!startall") {
+        const wasActive = Boolean(current.globalStop.active);
+        current.globalStop.active = false;
+        current.globalStop.since = 0;
+        if (current.stopList.size) {
+          current.stopList.clear();
+        }
+        await safeReply(
+          msg,
+          wasActive
+            ? "✅ Global auto replies re-enabled for all chats."
+            : "✅ Global auto replies were already enabled.",
+          false
+        );
+        return;
+      } else if (commandText === "!stop") {
+        current.stopList.set(chatId, Date.now());
+        await safeReply(msg, "🤖 Auto replies disabled for this chat for 24 hours.", false);
+        return;
+      } else if (commandText === "!start") {
+        if (current.stopList.has(chatId)) {
+          current.stopList.delete(chatId);
+          await safeReply(msg, "🤖 Auto replies re-enabled for this chat.", false);
+        } else {
+          await safeReply(msg, "🤖 Auto replies were already enabled here.", false);
+        }
+        return;
       }
+      // Do not process other outgoing messages for AI replies
       return;
     }
 
@@ -433,6 +482,7 @@ function registerEventHandlers(code, state) {
           text: customReply,
         });
         persistChatMessage(code, chatId, "outgoing", customReply);
+        await markChatUnread(msg);
       } catch (error) {
         logger.error({ err: error, chatId }, "Custom reply send error");
       }
@@ -457,21 +507,26 @@ function registerEventHandlers(code, state) {
         await safeReply(msg, reply, shouldSendAsVoice, config);
         appendHistoryEntry(current, chatId, { role: "assistant", text: reply });
         persistChatMessage(code, chatId, "outgoing", reply);
+        await markChatUnread(msg);
       } else {
-        // If no reply (likely due to timeout), send a fallback message
-        if (isVoiceMessage) {
-          await safeReply(msg, "⏱️ Sorry, the AI took too long to respond to your voice message. Please try again.", false);
-        }
+        // If no reply (likely due to timeout or safety filter), send a fallback message
+        const fallbackMessage = isVoiceMessage
+          ? "⏱️ Sorry, the AI took too long to respond to your voice message. Please try again."
+          : "⏱️ Sorry, the AI took too long to respond. Please try again.";
+        await safeReply(msg, fallbackMessage, false);
+        await markChatUnread(msg);
       }
     } catch (error) {
       logger.error({ err: error, chatId }, "AI reply error");
-      // Send user-friendly error message for voice messages
-      if (isVoiceMessage) {
-        try {
-          await safeReply(msg, "❌ Sorry, I couldn't process your voice message. Please try sending it as text.", false);
-        } catch (replyError) {
-          logger.error({ err: replyError, chatId }, "Failed to send error notification");
-        }
+      // Send a user-friendly error message for any failure
+      const errorMessage = isVoiceMessage
+        ? "❌ Sorry, I couldn't process your voice message. Please try sending it as text."
+        : "❌ Sorry, an error occurred while generating a reply. Please try again.";
+      try {
+        await safeReply(msg, errorMessage, false);
+        await markChatUnread(msg);
+      } catch (replyError) {
+        logger.error({ err: replyError, chatId }, "Failed to send error notification");
       }
     }
   });
@@ -518,6 +573,23 @@ async function safeReply(msg, text, sendAsVoice = false, config = null) {
     }
   } catch (error) {
     logger.error({ err: error, to: msg.from }, "Failed to send reply");
+  }
+}
+
+async function markChatUnread(msg) {
+  try {
+    if (!msg || typeof msg.getChat !== "function") {
+      return;
+    }
+
+    const chat = await msg.getChat();
+    if (!chat || typeof chat.markUnread !== "function") {
+      return;
+    }
+
+    await chat.markUnread();
+  } catch (error) {
+    logger.debug({ err: error, to: msg?.from }, "Failed to mark chat unread");
   }
 }
 
