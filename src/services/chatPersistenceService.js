@@ -194,6 +194,27 @@ async function persistBatches(batches) {
     await persistBatch(contacts, batch);
   }
 }
+/**
+ * Load past messages from persistence for a given session and contact.
+ * @param {string} sessionCode
+ * @param {string} contactId
+ * @param {{limit?: number}} options
+ * @returns {Promise<Array<{role: string, text: string, timestamp: Date}>>}
+ */
+async function loadMessages(sessionCode, contactId, { limit = MAX_MESSAGES_PER_CONTACT } = {}) {
+  await ensureIndexes();
+  const contacts = getCollection("contacts");
+  const doc = await contacts.findOne(
+    { sessionCode, contactId },
+    { projection: { messages: 1 } }
+  );
+  if (!doc || !Array.isArray(doc.messages)) return [];
+  return doc.messages.slice(-limit).map(entry => ({
+    role: entry.direction === "incoming" ? "user" : "assistant",
+    text: entry.message,
+    timestamp: entry.timestamp,
+  }));
+}
 
 async function persistBatch(contacts, batch) {
   const { sessionCode, contactId, messages } = batch;
@@ -252,5 +273,6 @@ module.exports = {
   flushQueuedMessages,
   flushSessionMessages,
   shutdownPersistence,
+  loadMessages,
   MAX_MESSAGES_PER_CONTACT,
 };

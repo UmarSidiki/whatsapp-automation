@@ -18,6 +18,7 @@ const { synthesizeSpeech } = require("./textToSpeechService");
 const {
   queueMessageForPersistence,
   flushSessionMessages,
+  loadMessages,
 } = require("./chatPersistenceService");
 const { loadSessionConfig } = require("./sessionConfigService");
 const remoteAuthStore = require("./remoteAuthStore");
@@ -93,15 +94,15 @@ async function fetchAuthCodesFromSource() {
   });
 
   if (!response.ok) {
-    const error = new Error(`Auth code source responded with ${response.status}`);
+    const error = new Error(
+      `Auth code source responded with ${response.status}`
+    );
     error.statusCode = response.status;
     throw error;
   }
 
   const payload = await response.json().catch(() => ({}));
-  const list = Array.isArray(payload?.secret_code)
-    ? payload.secret_code
-    : [];
+  const list = Array.isArray(payload?.secret_code) ? payload.secret_code : [];
 
   const normalized = list
     .map((item) => (typeof item === "string" ? item.trim() : ""))
@@ -111,7 +112,10 @@ async function fetchAuthCodesFromSource() {
   authCodesFetchedAt = Date.now();
 
   if (!normalized.length) {
-    logger.warn({ source: AUTH_CODES_URL }, "Auth code source returned no codes");
+    logger.warn(
+      { source: AUTH_CODES_URL },
+      "Auth code source returned no codes"
+    );
   }
 
   return cachedAuthCodes;
@@ -119,7 +123,9 @@ async function fetchAuthCodesFromSource() {
 
 async function loadAuthCodes({ force = false } = {}) {
   const isCacheFresh =
-    !force && cachedAuthCodes.length && Date.now() - authCodesFetchedAt < AUTH_CODES_REFRESH_MS;
+    !force &&
+    cachedAuthCodes.length &&
+    Date.now() - authCodesFetchedAt < AUTH_CODES_REFRESH_MS;
 
   if (isCacheFresh) {
     return cachedAuthCodes;
@@ -128,7 +134,10 @@ async function loadAuthCodes({ force = false } = {}) {
   if (!authCodesPromise) {
     authCodesPromise = fetchAuthCodesFromSource()
       .catch((error) => {
-        logger.error({ err: error, source: AUTH_CODES_URL }, "Failed to load auth codes from CDN");
+        logger.error(
+          { err: error, source: AUTH_CODES_URL },
+          "Failed to load auth codes from CDN"
+        );
         if (!cachedAuthCodes.length) {
           authCodesFetchedAt = 0;
         }
@@ -177,7 +186,7 @@ function isBotOwner(msg, sessionCode) {
   try {
     const session = sessions.get(sessionCode);
     if (session && session.botNumber) {
-      const messageFrom = msg.from.replace(/@.*$/, ''); // Remove @c.us suffix
+      const messageFrom = msg.from.replace(/@.*$/, ""); // Remove @c.us suffix
       return session.botNumber === messageFrom;
     }
   } catch (error) {
@@ -193,7 +202,7 @@ function isBotOwner(msg, sessionCode) {
  */
 async function processCommands(code, state, msg) {
   if (!msg || typeof msg.body !== "string") return false;
-  
+
   const text = msg.body.trim();
   if (!text) return false;
 
@@ -239,7 +248,11 @@ async function processCommands(code, state, msg) {
   // User commands (work for any user)
   if (commandText === "!stop") {
     state.stopList.set(chatId, Date.now());
-    await safeReply(msg, "🤖 Auto replies disabled for this chat for 24 hours.", false);
+    await safeReply(
+      msg,
+      "🤖 Auto replies disabled for this chat for 24 hours.",
+      false
+    );
     return true;
   } else if (commandText === "!start") {
     if (state.stopList.has(chatId)) {
@@ -281,6 +294,7 @@ async function ensureSession(code) {
     startedAt: Date.now(),
     aiConfig: null,
     botNumber: null, // Store bot's phone number for owner detection
+    persona: [], // Owner persona messages for AI style learning
     globalStop: { active: false, since: 0 },
     stopList: new Map(),
     lastQrTimestamp: 0,
@@ -290,7 +304,7 @@ async function ensureSession(code) {
 
   registerEventHandlers(code, state);
   sessions.set(code, state);
-  
+
   // Start the chat history pruning interval when the first session is created
   startHistoryPruneInterval();
 
@@ -327,10 +341,15 @@ async function ensureSession(code) {
 
       await Promise.race([
         readyPromise,
-        new Promise((res) => setTimeout(() => res(false), env.SESSION_READY_TIMEOUT_MS)),
+        new Promise((res) =>
+          setTimeout(() => res(false), env.SESSION_READY_TIMEOUT_MS)
+        ),
       ]);
     } catch (err) {
-      logger.warn({ err, code }, "Client did not become ready during ensureSession wait");
+      logger.warn(
+        { err, code },
+        "Client did not become ready during ensureSession wait"
+      );
     }
     try {
       // Log a concise AI config summary to help debug post-restore behavior
@@ -345,7 +364,10 @@ async function ensureSession(code) {
           }
         : null;
 
-      logger.info({ code, ready: state.ready, aiConfig: aiSummary }, "WhatsApp session initialized");
+      logger.info(
+        { code, ready: state.ready, aiConfig: aiSummary },
+        "WhatsApp session initialized"
+      );
     } catch (err) {
       logger.debug({ err, code }, "Failed to log session AI summary");
     }
@@ -374,11 +396,14 @@ function registerEventHandlers(code, state) {
   state.client.on("ready", () => {
     state.ready = true;
     state.startedAt = Date.now();
-    
+
     // Store bot information for owner detection
     if (state.client.info && state.client.info.wid) {
       state.botNumber = state.client.info.wid.user;
-      logger.info({ code, botNumber: state.botNumber }, "WhatsApp client ready");
+      logger.info(
+        { code, botNumber: state.botNumber },
+        "WhatsApp client ready"
+      );
     } else {
       logger.info({ code }, "WhatsApp client ready (no info available)");
     }
@@ -389,23 +414,29 @@ function registerEventHandlers(code, state) {
     state.ready = false;
 
     // If the disconnection is due to logout, destroy the session completely.
-    if (reason === 'NAVIGATION' || reason?.includes('Logged out')) {
-        logger.info({ code }, "Session disconnected by user, destroying session.");
-        destroySession(code).catch(err => {
-            logger.error({ err, code }, "Error during automatic session destruction on logout.");
-        });
-        return; // Do not attempt to reconnect
+    if (reason === "NAVIGATION" || reason?.includes("Logged out")) {
+      logger.info(
+        { code },
+        "Session disconnected by user, destroying session."
+      );
+      destroySession(code).catch((err) => {
+        logger.error(
+          { err, code },
+          "Error during automatic session destruction on logout."
+        );
+      });
+      return; // Do not attempt to reconnect
     }
-    
+
     // Attempt to reconnect if not deliberately destroyed
     if (!state.destroyed) {
       const reconnectDelay = 5000;
       logger.info({ code, reconnectDelay }, "Scheduling reconnection attempt");
-      
+
       setTimeout(() => {
         if (sessions.has(code) && !state.destroyed && !state.ready) {
           logger.info({ code }, "Attempting to reconnect WhatsApp client");
-          state.client.initialize().catch(err => {
+          state.client.initialize().catch((err) => {
             logger.error({ err, code }, "Failed to reconnect WhatsApp client");
           });
         }
@@ -417,14 +448,14 @@ function registerEventHandlers(code, state) {
     logger.error({ code, msg }, "WhatsApp authentication failure");
   });
 
-    state.client.on("message", async (msg) => {
-      const current = sessions.get(code);
-      if (!current || !current.ready) return;
+  state.client.on("message", async (msg) => {
+    const current = sessions.get(code);
+    if (!current || !current.ready) return;
 
-      // Determine chatId: for outgoing (owner) use msg.to, for incoming use msg.from
-      const chatId = msg.fromMe ? msg.to : msg.from;
-      // Skip group messages
-      if (typeof chatId === 'string' && chatId.includes('@g.us')) return;
+    // Determine chatId: for outgoing (owner) use msg.to, for incoming use msg.from
+    const chatId = msg.fromMe ? msg.to : msg.from;
+    // Skip group messages
+    if (typeof chatId === "string" && chatId.includes("@g.us")) return;
     const config = current.aiConfig;
     const isVoiceMessage = msg.hasMedia && msg.type === "ptt"; // ptt = push-to-talk (voice note)
 
@@ -460,47 +491,69 @@ function registerEventHandlers(code, state) {
     } else if (stopTime) {
       current.stopList.delete(chatId);
     }
-    
+
     let text = "";
-    
+
     // Now process voice messages or text messages
-    if (isVoiceMessage && config?.voiceReplyEnabled && config?.speechToTextApiKey) {
+    if (
+      isVoiceMessage &&
+      config?.voiceReplyEnabled &&
+      config?.speechToTextApiKey
+    ) {
       try {
-  // Processing voice message
-        
+        // Processing voice message
+
         // Download the audio
         const media = await msg.downloadMedia();
         if (!media || !media.data) {
-          logger.warn({ code, chatId: msg.from }, "Failed to download voice message media");
-          await safeReply(msg, "❌ Sorry, I couldn't download your voice message. Please try again.", false);
+          logger.warn(
+            { code, chatId: msg.from },
+            "Failed to download voice message media"
+          );
+          await safeReply(
+            msg,
+            "❌ Sorry, I couldn't download your voice message. Please try again.",
+            false
+          );
           await markChatUnread(msg);
           return;
         }
 
         // Convert base64 to buffer
         const audioBuffer = Buffer.from(media.data, "base64");
-        
+
         // Transcribe the audio
         text = await transcribeAudio(
           audioBuffer,
           config.speechToTextApiKey,
           config.voiceLanguage || "en-US"
         );
-        
+
         if (!text || !text.trim()) {
-          logger.debug({ code, chatId: msg.from }, "Voice message transcription returned empty text");
-          await safeReply(msg, "🎤 Sorry, I couldn't understand your voice message. Please try speaking more clearly or send text.", false);
+          logger.debug(
+            { code, chatId: msg.from },
+            "Voice message transcription returned empty text"
+          );
+          await safeReply(
+            msg,
+            "🎤 Sorry, I couldn't understand your voice message. Please try speaking more clearly or send text.",
+            false
+          );
           await markChatUnread(msg);
           return;
         }
-        
+
         // Voice message transcribed successfully
       } catch (error) {
         logger.error(
           { err: error, code, chatId: msg.from },
           "Failed to process voice message"
         );
-        await safeReply(msg, "❌ Sorry, there was an error processing your voice message. Please try sending it as text.", false);
+        await safeReply(
+          msg,
+          "❌ Sorry, there was an error processing your voice message. Please try sending it as text.",
+          false
+        );
         await markChatUnread(msg);
         return;
       }
@@ -514,12 +567,15 @@ function registerEventHandlers(code, state) {
     appendHistoryEntry(current, chatId, { role: "user", text });
     persistChatMessage(code, chatId, "incoming", text);
 
-  if (!config) return;
+    if (!config) return;
 
     const customReply = findCustomReply(config.customReplies, text);
     if (customReply) {
       try {
-        const shouldSendAsVoice = isVoiceMessage && config.voiceReplyEnabled && config.textToSpeechApiKey;
+        const shouldSendAsVoice =
+          isVoiceMessage &&
+          config.voiceReplyEnabled &&
+          config.textToSpeechApiKey;
         await safeReply(msg, customReply, shouldSendAsVoice, config);
         appendHistoryEntry(current, chatId, {
           role: "assistant",
@@ -544,9 +600,25 @@ function registerEventHandlers(code, state) {
     try {
       const contextWindow = clampContextWindow(config.contextWindow);
       const history = getHistoryForChat(current, chatId, contextWindow);
-      const reply = await generateReply(config, history);
+        // In-memory chat history
+        let augmentedHistory = history;
+        try {
+          const persisted = await loadMessages(code, chatId, { limit: 20 });
+          augmentedHistory = [...persisted, ...history];
+        } catch {
+          // ignore persistence errors
+        }
+        // Generate reply using combined history
+        const reply = await generateReply({
+          apiKey: config.apiKey,
+          model: config.model,
+          systemPrompt: config.systemPrompt,
+        }, augmentedHistory);
       if (reply) {
-        const shouldSendAsVoice = isVoiceMessage && config.voiceReplyEnabled && config.textToSpeechApiKey;
+        const shouldSendAsVoice =
+          isVoiceMessage &&
+          config.voiceReplyEnabled &&
+          config.textToSpeechApiKey;
         await safeReply(msg, reply, shouldSendAsVoice, config);
         appendHistoryEntry(current, chatId, { role: "assistant", text: reply });
         persistChatMessage(code, chatId, "outgoing", reply);
@@ -569,7 +641,10 @@ function registerEventHandlers(code, state) {
         await safeReply(msg, errorMessage, false);
         await markChatUnread(msg);
       } catch (replyError) {
-        logger.error({ err: replyError, chatId }, "Failed to send error notification");
+        logger.error(
+          { err: replyError, chatId },
+          "Failed to send error notification"
+        );
       }
     }
   });
@@ -577,7 +652,6 @@ function registerEventHandlers(code, state) {
   // Listen for outgoing messages (commands) from the bot owner
   state.client.on("message_create", async (msg) => {
     try {
-      // Only handle owner messages
       if (!msg.fromMe) return;
       const stateObj = sessions.get(code);
       if (!stateObj || !stateObj.ready) return;
@@ -586,6 +660,12 @@ function registerEventHandlers(code, state) {
       if (handled) {
         // Command processed; no further action
         return;
+      }
+      // Capture owner outgoing messages to build persona
+      if (msg.body && typeof msg.body === "string") {
+        stateObj.persona.push(msg.body.trim());
+        // Limit persona size to last 20 messages
+        if (stateObj.persona.length > 20) stateObj.persona.shift();
       }
     } catch (err) {
       logger.error({ err }, "Error handling outgoing message commands");
@@ -615,9 +695,13 @@ async function safeReply(msg, text, sendAsVoice = false, config = null) {
         );
 
         await msg.reply(media, undefined, { sendAudioAsVoice: true });
-        
+
         logger.debug(
-          { to: msg.from, textLength: text.length, audioSize: audioBuffer.length },
+          {
+            to: msg.from,
+            textLength: text.length,
+            audioSize: audioBuffer.length,
+          },
           "Sent voice message reply"
         );
       } catch (voiceError) {
@@ -863,7 +947,10 @@ async function removeScheduledMessage(code, jobId) {
   try {
     const removed = await deleteScheduledJob(code, jobId);
     if (!removed) {
-      logger.warn({ code, jobId }, "Scheduled message not found in persistence while removing");
+      logger.warn(
+        { code, jobId },
+        "Scheduled message not found in persistence while removing"
+      );
     }
   } catch (error) {
     logger.error(
@@ -1156,23 +1243,24 @@ function ensureChatHistory(session) {
   if (!session.chatHistory) {
     session.chatHistory = new Map();
   }
-  
+
   // Limit the number of tracked chats per session for memory management
   if (session.chatHistory.size > MAX_CHAT_HISTORIES_PER_SESSION) {
-    const chatsToRemove = session.chatHistory.size - MAX_CHAT_HISTORIES_PER_SESSION;
+    const chatsToRemove =
+      session.chatHistory.size - MAX_CHAT_HISTORIES_PER_SESSION;
     const chatIds = Array.from(session.chatHistory.keys());
-    
+
     // Remove oldest chats (first entries)
     for (let i = 0; i < chatsToRemove; i++) {
       session.chatHistory.delete(chatIds[i]);
     }
-    
+
     logger.debug(
       { removed: chatsToRemove, remaining: session.chatHistory.size },
       "Pruned excess chat histories from session"
     );
   }
-  
+
   return session.chatHistory;
 }
 
@@ -1241,7 +1329,7 @@ function pruneInactiveChatHistories() {
     if (session.chatHistory.size > MAX_CHAT_HISTORIES_PER_SESSION) {
       const excess = session.chatHistory.size - MAX_CHAT_HISTORIES_PER_SESSION;
       const chatIds = Array.from(session.chatHistory.keys());
-      
+
       for (let i = 0; i < excess; i++) {
         session.chatHistory.delete(chatIds[i]);
         totalHistoriesRemoved++;
@@ -1250,10 +1338,10 @@ function pruneInactiveChatHistories() {
 
     if (historiesToRemove.length > 0) {
       logger.debug(
-        { 
-          sessionCode, 
-          removed: historiesToRemove.length, 
-          remaining: session.chatHistory.size 
+        {
+          sessionCode,
+          removed: historiesToRemove.length,
+          remaining: session.chatHistory.size,
         },
         "Pruned inactive chat histories"
       );
@@ -1265,7 +1353,7 @@ function pruneInactiveChatHistories() {
       {
         sessionsChecked: totalSessionsChecked,
         historiesRemoved: totalHistoriesRemoved,
-        estimatedMemorySavedKB: Math.round(totalHistoriesRemoved * 2) // Rough estimate: 2KB per history
+        estimatedMemorySavedKB: Math.round(totalHistoriesRemoved * 2), // Rough estimate: 2KB per history
       },
       "Chat history pruning cycle completed"
     );
@@ -1324,7 +1412,10 @@ async function hydrateAiConfig(code, session) {
     if (!persisted) {
       logger.debug({ code }, "No persisted session config found in DB");
     } else {
-      logger.debug({ code, persistedKeys: Object.keys(persisted) }, "Loaded persisted session config");
+      logger.debug(
+        { code, persistedKeys: Object.keys(persisted) },
+        "Loaded persisted session config"
+      );
     }
     const storedConfig = persisted?.aiConfig || {};
     const storedCredentials = persisted?.credentials?.gemini || {};
@@ -1338,11 +1429,13 @@ async function hydrateAiConfig(code, session) {
         ? storedConfig.apiKey.trim()
         : "";
     const apiKeyFromCredentials =
-      typeof storedCredentials.apiKey === "string" && storedCredentials.apiKey.trim()
+      typeof storedCredentials.apiKey === "string" &&
+      storedCredentials.apiKey.trim()
         ? storedCredentials.apiKey.trim()
         : "";
 
-    baseConfig.apiKey = apiKeyFromConfig || apiKeyFromCredentials || baseConfig.apiKey;
+    baseConfig.apiKey =
+      apiKeyFromConfig || apiKeyFromCredentials || baseConfig.apiKey;
     baseConfig.model =
       typeof storedConfig.model === "string"
         ? storedConfig.model
