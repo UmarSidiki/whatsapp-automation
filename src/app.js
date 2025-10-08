@@ -21,9 +21,13 @@ function createApp() {
   app.set("trust proxy", 1);
   app.set("sessionRegistry", listSessions());
 
-  app.use(requestLogger);
+  if (env.enableRequestLogger) {
+    app.use(requestLogger);
+  }
   app.use(helmet());
-  app.use(compression());
+  if (env.enableCompression) {
+    app.use(compression());
+  }
   app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
   app.use(globalLimiter);
 

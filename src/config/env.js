@@ -22,6 +22,11 @@ const EnvSchema = z
     STATIC_DIR: z.string().optional(),
     REMOTE_AUTH_BACKUP_MS: z.coerce.number().optional(),
     REMOTE_AUTH_DATA_PATH: z.string().optional(),
+    ENABLE_COMPRESSION: z.string().optional(),
+    ENABLE_REQUEST_LOGGER: z.string().optional(),
+    AUTO_RESTORE_SESSIONS: z.string().optional(),
+    SESSION_RESTORE_THROTTLE_MS: z.coerce.number().optional(),
+    SESSION_READY_TIMEOUT_MS: z.coerce.number().default(30000),
     MONGO_URI: z.string().min(10, "MONGO_URI is required"),
     MONGO_DB_NAME: z.string().min(1, "MONGO_DB_NAME is required"),
   })
@@ -36,6 +41,16 @@ const EnvSchema = z
     ),
     remoteAuthDataPath:
       data.REMOTE_AUTH_DATA_PATH || path.join(process.cwd(), ".wwebjs_auth"),
+    enableCompression:
+      typeof data.ENABLE_COMPRESSION === "string"
+        ? data.ENABLE_COMPRESSION !== "false"
+        : data.NODE_ENV === "production",
+    enableRequestLogger:
+      typeof data.ENABLE_REQUEST_LOGGER === "string"
+        ? data.ENABLE_REQUEST_LOGGER !== "false"
+        : data.NODE_ENV !== "production",
+    autoRestoreSessions: data.AUTO_RESTORE_SESSIONS !== "false",
+    sessionRestoreThrottleMs: Math.max(data.SESSION_RESTORE_THROTTLE_MS || 1000, 0),
   }));
 
 const env = EnvSchema.parse(process.env);

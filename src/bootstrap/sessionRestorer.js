@@ -1,10 +1,62 @@
 "use strict";
 
 const logger = require("../config/logger");
+const env = require("../config/env");
 const remoteAuthStore = require("../services/remoteAuthStore");
-const { ensureSession } = require("../services/sessionService");
+const { ensureSession, updateAiConfig } = require("../services/sessionService");
+const { loadSessionConfig } = require("../services/sessionConfigService");
+
+function wait(ms) {
+  if (!ms) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeSessionCode(sessionName) {
+  if (!sessionName || typeof sessionName !== "string") {
+    return null;
+  }
+  if (sessionName.startsWith("RemoteAuth-")) {
+    return sessionName.slice("RemoteAuth-".length);
+  }
+  return sessionName;
+}
+
+async function applyPersistedAiConfig(code) {
+  try {
+    const persisted = await loadSessionConfig(code);
+    if (!persisted) {
+      return;
+    }
+
+    const persistedAi = persisted.aiConfig || {};
+    const persistedCreds = persisted.credentials?.gemini || {};
+    const apiKey =
+      (typeof persistedCreds.apiKey === "string" && persistedCreds.apiKey.trim()) ||
+      (typeof persistedAi.apiKey === "string" && persistedAi.apiKey.trim()) ||
+      "";
+
+    const toApply = { ...persistedAi };
+    if (apiKey) {
+      toApply.apiKey = apiKey;
+    }
+
+    if (Object.keys(toApply).length) {
+      updateAiConfig(code, toApply);
+      logger.debug({ code }, "Applied persisted AI config during session restore");
+    }
+  } catch (error) {
+    logger.debug({ err: error, code }, "Skipped persisted AI config application");
+  }
+}
 
 async function restoreSessions() {
+  if (!env.autoRestoreSessions) {
+    logger.debug("Auto restore disabled; skipping session hydration");
+    return;
+  }
+
   let storedSessions = [];
   try {
     storedSessions = await remoteAuthStore.list();
@@ -18,18 +70,66 @@ async function restoreSessions() {
     return;
   }
 
+  const readyTimeoutMs = Math.max(Number(env.SESSION_READY_TIMEOUT_MS) || 0, 0);
+
   for (const doc of storedSessions) {
-    const sessionCode = doc?.session;
-    if (!sessionCode) {
+    const storedName = doc?.session;
+    const code = normalizeSessionCode(storedName);
+    if (!code) {
       continue;
     }
 
     try {
-      await ensureSession(sessionCode);
-      logger.info({ code: sessionCode }, "Restored WhatsApp session on startup");
+      const session = await ensureSession(code);
+      await applyPersistedAiConfig(code);
+
+      if (session && !session.ready) {
+        const waitForReady = new Promise((resolve) => {
+          const check = () => {
+            if (session.ready) return resolve(true);
+            setTimeout(check, 250);
+          };
+          check();
+        });
+
+        const ready = readyTimeoutMs
+          ? await Promise.race([
+              waitForReady,
+              new Promise((res) => setTimeout(() => res(false), readyTimeoutMs)),
+            ])
+          : await waitForReady;
+
+        if (ready) {
+          logger.info({ code, storedName }, "Restored WhatsApp session and client ready");
+        } else {
+          logger.warn({ code, storedName }, "Session restored but client not ready within timeout");
+        }
+      } else {
+        logger.info({ code, storedName }, "Restored WhatsApp session on startup");
+      }
     } catch (error) {
-      logger.error({ err: error, code: sessionCode }, "Failed to restore WhatsApp session on startup");
+      logger.error({ err: error, code, storedName }, "Failed to restore WhatsApp session on startup");
     }
+
+    if (env.sessionRestoreThrottleMs) {
+      await wait(env.sessionRestoreThrottleMs);
+    }
+  }
+
+  try {
+    const { listSessions } = require("../services/sessionService");
+    const sessions = listSessions();
+    const summary = [];
+    for (const [code, state] of sessions.entries()) {
+      summary.push({
+        code,
+        ready: state.ready,
+        autoReplyEnabled: state.aiConfig?.autoReplyEnabled,
+      });
+    }
+    logger.info({ restored: summary.length, sessions: summary }, "Session restore summary");
+  } catch (error) {
+    logger.debug({ err: error }, "Failed to produce session restore summary");
   }
 }
 

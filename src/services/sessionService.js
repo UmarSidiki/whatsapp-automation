@@ -1,7 +1,5 @@
 "use strict";
 
-const qrcode = require("qrcode");
-const { Client, RemoteAuth } = require("whatsapp-web.js");
 const env = require("../config/env");
 const logger = require("../config/logger");
 const { fetchFn } = require("../utils/http");
@@ -30,6 +28,44 @@ const {
 
 const sessions = new Map();
 const SCHEDULE_RETRY_DELAY_MS = 5_000;
+const MESSAGE_TIMESTAMP_TOLERANCE_MS = 30_000; // 30s for clock skew tolerance
+const CHAT_HISTORY_PRUNE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const CHAT_HISTORY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_CHAT_HISTORIES_PER_SESSION = 50; // Limit number of tracked chats
+
+let qrCodeLib = null;
+let whatsappDeps = null;
+let historyPruneInterval = null;
+
+function getQrCodeLib() {
+  if (!qrCodeLib) {
+    qrCodeLib = require("qrcode");
+  }
+  return qrCodeLib;
+}
+
+function getWhatsAppDeps() {
+  if (!whatsappDeps) {
+    whatsappDeps = require("whatsapp-web.js");
+  }
+  return whatsappDeps;
+}
+
+const PUPPETEER_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+  "--disable-background-networking",
+  "--disable-default-apps",
+  "--disable-extensions",
+  "--disable-sync",
+  "--metrics-recording-only",
+  "--mute-audio",
+  "--no-first-run",
+  "--no-zygote",
+  "--disable-features=Translate",
+];
 
 const AUTH_CODES_URL =
   "https://cdn.jsdelivr.net/gh/UmarSidiki/Multi-Tool@refs/heads/master/wp-ai-codes.json";
@@ -130,6 +166,8 @@ async function ensureSession(code) {
     return sessions.get(code);
   }
 
+  const { Client, RemoteAuth } = getWhatsAppDeps();
+
   const client = new Client({
     authStrategy: new RemoteAuth({
       clientId: code,
@@ -139,11 +177,7 @@ async function ensureSession(code) {
     }),
     puppeteer: {
       headless: env.puppeteerHeadless,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
+      args: PUPPETEER_ARGS,
     },
   });
 
@@ -151,6 +185,7 @@ async function ensureSession(code) {
     client,
     qr: null,
     ready: false,
+    startedAt: Date.now(),
     aiConfig: null,
     stopList: new Map(),
     lastQrTimestamp: 0,
@@ -160,10 +195,65 @@ async function ensureSession(code) {
 
   registerEventHandlers(code, state);
   sessions.set(code, state);
+  
+  // Start the chat history pruning interval when the first session is created
+  startHistoryPruneInterval();
 
   try {
     await client.initialize();
     await hydrateSessionState(code, state);
+    // Wait briefly for the client to become ready or fail authentication so callers get a usable session
+    try {
+      const readyPromise = new Promise((resolve, reject) => {
+        const onReady = () => {
+          cleanup();
+          resolve(true);
+        };
+        const onAuthFailure = (msg) => {
+          cleanup();
+          reject(new Error(`auth_failure: ${String(msg)}`));
+        };
+        const onDisconnect = (reason) => {
+          // disconnect may occur before ready; treat as failure to become ready
+          cleanup();
+          reject(new Error(`disconnected: ${String(reason)}`));
+        };
+
+        function cleanup() {
+          state.client.removeListener("ready", onReady);
+          state.client.removeListener("auth_failure", onAuthFailure);
+          state.client.removeListener("disconnected", onDisconnect);
+        }
+
+        state.client.on("ready", onReady);
+        state.client.on("auth_failure", onAuthFailure);
+        state.client.on("disconnected", onDisconnect);
+      });
+
+      await Promise.race([
+        readyPromise,
+        new Promise((res) => setTimeout(() => res(false), env.SESSION_READY_TIMEOUT_MS)),
+      ]);
+    } catch (err) {
+      logger.warn({ err, code }, "Client did not become ready during ensureSession wait");
+    }
+    try {
+      // Log a concise AI config summary to help debug post-restore behavior
+      const aiSummary = state.aiConfig
+        ? {
+            model: state.aiConfig.model || null,
+            hasApiKey: Boolean(state.aiConfig.apiKey),
+            autoReplyEnabled: state.aiConfig.autoReplyEnabled,
+            customReplyCount: Array.isArray(state.aiConfig.customReplies)
+              ? state.aiConfig.customReplies.length
+              : 0,
+          }
+        : null;
+
+      logger.info({ code, ready: state.ready, aiConfig: aiSummary }, "WhatsApp session initialized");
+    } catch (err) {
+      logger.debug({ err, code }, "Failed to log session AI summary");
+    }
   } catch (error) {
     sessions.delete(code);
     logger.error({ err: error }, "Failed to initialize WhatsApp client");
@@ -179,6 +269,7 @@ function registerEventHandlers(code, state) {
     if (now - state.lastQrTimestamp < QR_REFRESH_INTERVAL_MS) return;
     state.lastQrTimestamp = now;
     try {
+      const qrcode = getQrCodeLib();
       state.qr = await qrcode.toDataURL(qr);
     } catch (error) {
       logger.error({ err: error }, "Failed to convert QR to data URL");
@@ -187,12 +278,28 @@ function registerEventHandlers(code, state) {
 
   state.client.on("ready", () => {
     state.ready = true;
+    state.startedAt = Date.now();
     logger.info({ code }, "WhatsApp client ready");
   });
 
   state.client.on("disconnected", (reason) => {
     logger.warn({ code, reason }, "WhatsApp client disconnected");
     state.ready = false;
+    
+    // Attempt to reconnect if not deliberately destroyed
+    if (!state.destroyed) {
+      const reconnectDelay = 5000;
+      logger.info({ code, reconnectDelay }, "Scheduling reconnection attempt");
+      
+      setTimeout(() => {
+        if (sessions.has(code) && !state.destroyed && !state.ready) {
+          logger.info({ code }, "Attempting to reconnect WhatsApp client");
+          state.client.initialize().catch(err => {
+            logger.error({ err, code }, "Failed to reconnect WhatsApp client");
+          });
+        }
+      }, reconnectDelay);
+    }
   });
 
   state.client.on("auth_failure", (msg) => {
@@ -210,9 +317,45 @@ function registerEventHandlers(code, state) {
 
     const chatId = msg.from;
 
-    if (text.toLowerCase() === "!stopauto") {
+    const messageTimestampMs =
+      typeof msg.timestamp === "number" && msg.timestamp > 0
+        ? msg.timestamp * 1000
+        : typeof msg._data?.t === "number" && msg._data.t > 0
+        ? msg._data.t * 1000
+        : Date.now();
+
+    if (
+      current.startedAt &&
+      messageTimestampMs + MESSAGE_TIMESTAMP_TOLERANCE_MS < current.startedAt
+    ) {
+      logger.debug(
+        {
+          code,
+          chatId,
+          messageTimestampMs,
+          sessionStartedAt: current.startedAt,
+        },
+        "Skipping message received before session started"
+      );
+      return;
+    }
+
+    // Allow the remote contact to opt-out for a period by sending !stopauto.
+    // Ignore commands sent by the client itself (fromMe).
+    if (!msg.fromMe && text.toLowerCase() === "!stop") {
       current.stopList.set(chatId, Date.now());
       await safeReply(msg, "🤖 Auto replies disabled for 24 hours.");
+      return;
+    }
+
+    // Allow the remote contact to re-enable auto replies early.
+    if (!msg.fromMe && text.toLowerCase() === "!start") {
+      if (current.stopList.has(chatId)) {
+        current.stopList.delete(chatId);
+        await safeReply(msg, "🤖 Auto replies re-enabled. I'll reply as usual.");
+      } else {
+        await safeReply(msg, "🤖 Auto replies are already enabled.");
+      }
       return;
     }
 
@@ -627,6 +770,12 @@ function scheduleJobExecution(code, session, job, overrideDelay) {
 }
 
 async function shutdownAll() {
+  // Clear prune interval if it exists
+  if (historyPruneInterval) {
+    clearInterval(historyPruneInterval);
+    historyPruneInterval = null;
+  }
+
   for (const [code, session] of sessions.entries()) {
     try {
       await flushSessionMessages(code);
@@ -639,6 +788,7 @@ async function shutdownAll() {
 
     try {
       clearScheduledJobs(session);
+      session.destroyed = true;
       await session.client.destroy();
       logger.info({ code }, "Session destroyed");
     } catch (error) {
@@ -665,6 +815,7 @@ async function destroySession(code) {
 
   try {
     clearScheduledJobs(session);
+    session.destroyed = true;
     await session.client.destroy();
     logger.info({ code }, "Session destroyed via logout");
   } catch (error) {
@@ -770,6 +921,23 @@ function ensureChatHistory(session) {
   if (!session.chatHistory) {
     session.chatHistory = new Map();
   }
+  
+  // Limit the number of tracked chats per session for memory management
+  if (session.chatHistory.size > MAX_CHAT_HISTORIES_PER_SESSION) {
+    const chatsToRemove = session.chatHistory.size - MAX_CHAT_HISTORIES_PER_SESSION;
+    const chatIds = Array.from(session.chatHistory.keys());
+    
+    // Remove oldest chats (first entries)
+    for (let i = 0; i < chatsToRemove; i++) {
+      session.chatHistory.delete(chatIds[i]);
+    }
+    
+    logger.debug(
+      { removed: chatsToRemove, remaining: session.chatHistory.size },
+      "Pruned excess chat histories from session"
+    );
+  }
+  
   return session.chatHistory;
 }
 
@@ -792,6 +960,99 @@ function appendHistoryEntry(session, chatId, entry) {
 
   historyStore.set(chatId, history);
   return history;
+}
+
+/**
+ * Prune inactive chat histories to reduce memory usage.
+ * Removes chat histories that haven't been accessed in CHAT_HISTORY_MAX_AGE_MS
+ * and ensures total histories per session don't exceed MAX_CHAT_HISTORIES_PER_SESSION.
+ */
+function pruneInactiveChatHistories() {
+  const now = Date.now();
+  let totalSessionsChecked = 0;
+  let totalHistoriesRemoved = 0;
+
+  for (const [sessionCode, session] of sessions.entries()) {
+    if (!session.chatHistory || session.chatHistory.size === 0) {
+      continue;
+    }
+
+    totalSessionsChecked++;
+    const historiesToRemove = [];
+
+    // Find histories older than max age
+    for (const [chatId, history] of session.chatHistory.entries()) {
+      if (history.length === 0) {
+        historiesToRemove.push(chatId);
+        continue;
+      }
+
+      // Check the last message timestamp
+      const lastMessage = history[history.length - 1];
+      const age = now - lastMessage.timestamp;
+
+      if (age > CHAT_HISTORY_MAX_AGE_MS) {
+        historiesToRemove.push(chatId);
+      }
+    }
+
+    // Remove old histories
+    for (const chatId of historiesToRemove) {
+      session.chatHistory.delete(chatId);
+      totalHistoriesRemoved++;
+    }
+
+    // Enforce max histories per session (already done in ensureChatHistory, but double-check here)
+    if (session.chatHistory.size > MAX_CHAT_HISTORIES_PER_SESSION) {
+      const excess = session.chatHistory.size - MAX_CHAT_HISTORIES_PER_SESSION;
+      const chatIds = Array.from(session.chatHistory.keys());
+      
+      for (let i = 0; i < excess; i++) {
+        session.chatHistory.delete(chatIds[i]);
+        totalHistoriesRemoved++;
+      }
+    }
+
+    if (historiesToRemove.length > 0) {
+      logger.debug(
+        { 
+          sessionCode, 
+          removed: historiesToRemove.length, 
+          remaining: session.chatHistory.size 
+        },
+        "Pruned inactive chat histories"
+      );
+    }
+  }
+
+  if (totalHistoriesRemoved > 0) {
+    logger.info(
+      {
+        sessionsChecked: totalSessionsChecked,
+        historiesRemoved: totalHistoriesRemoved,
+        estimatedMemorySavedKB: Math.round(totalHistoriesRemoved * 2) // Rough estimate: 2KB per history
+      },
+      "Chat history pruning cycle completed"
+    );
+  }
+}
+
+/**
+ * Start the interval for pruning inactive chat histories.
+ */
+function startHistoryPruneInterval() {
+  if (historyPruneInterval) {
+    return; // Already running
+  }
+
+  historyPruneInterval = setInterval(() => {
+    pruneInactiveChatHistories();
+  }, CHAT_HISTORY_PRUNE_INTERVAL_MS);
+
+  logger.info(
+    { intervalMs: CHAT_HISTORY_PRUNE_INTERVAL_MS },
+    "Started chat history pruning interval"
+  );
 }
 
 function persistChatMessage(sessionCode, contactId, direction, text) {
@@ -825,6 +1086,11 @@ async function hydrateSessionState(code, session) {
 async function hydrateAiConfig(code, session) {
   try {
     const persisted = await loadSessionConfig(code);
+    if (!persisted) {
+      logger.debug({ code }, "No persisted session config found in DB");
+    } else {
+      logger.debug({ code, persistedKeys: Object.keys(persisted) }, "Loaded persisted session config");
+    }
     const storedConfig = persisted?.aiConfig || {};
     const storedCredentials = persisted?.credentials?.gemini || {};
     const baseConfig = {

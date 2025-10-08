@@ -32,6 +32,11 @@ Production-ready WhatsApp auto-responder powered by Google's Gemini API.
 2. Copy `.env.example` to `.env` and adjust values. At minimum set:
    - `AUTH_CODES` (comma-separated) for login access
    - `NODE_ENV`, `PORT`, `LOG_LEVEL` as needed
+   - Optional resource tuning flags:
+     - `ENABLE_COMPRESSION` (`true`/`false`, default auto-enables in production)
+     - `ENABLE_REQUEST_LOGGER` (`true`/`false`, default off in production)
+     - `AUTO_RESTORE_SESSIONS` (`true`/`false`, default `true`)
+     - `SESSION_RESTORE_THROTTLE_MS` (delay between session restores, default `1000`)
 3. Run lint checks (optional but recommended before commits):
    ```powershell
    npm run lint

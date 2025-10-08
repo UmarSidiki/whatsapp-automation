@@ -1,6 +1,7 @@
 "use strict";
 
 module.exports = {
+  // Default opt-out timeout for remote contacts (24 hours). Can be overridden via env in future.
   STOP_TIMEOUT_MS: 24 * 60 * 60 * 1000,
   QR_REFRESH_INTERVAL_MS: 30 * 1000,
   DEFAULT_CONTEXT_WINDOW: 50,
