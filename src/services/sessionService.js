@@ -163,6 +163,97 @@ function listSessions() {
   return sessions;
 }
 
+/**
+ * Check if a message is from the bot owner
+ * According to whatsapp-web.js, the bot's own number can be detected differently
+ */
+function isBotOwner(msg, sessionCode) {
+  // Method 1: Check if fromMe is true (messages sent by the bot itself)
+  if (msg.fromMe) {
+    return true;
+  }
+
+  // Method 2: Compare with the session's authenticated number
+  try {
+    const session = sessions.get(sessionCode);
+    if (session && session.botNumber) {
+      const messageFrom = msg.from.replace(/@.*$/, ''); // Remove @c.us suffix
+      return session.botNumber === messageFrom;
+    }
+  } catch (error) {
+    logger.debug({ err: error }, "Error checking bot owner");
+  }
+
+  return false;
+}
+
+/**
+ * Process commands from both bot owner and users
+ * @returns {Promise<boolean>} true if the message was a command and was processed
+ */
+async function processCommands(code, state, msg) {
+  if (!msg || typeof msg.body !== "string") return false;
+  
+  const text = msg.body.trim();
+  if (!text) return false;
+
+  const commandText = text.toLowerCase();
+  // Determine chat ID: use msg.to for outgoing owner messages, msg.from for incoming
+  const chatId = msg.fromMe ? msg.to : msg.from;
+  const isBotOwnerMessage = isBotOwner(msg, code);
+
+  // Bot owner commands (only work when sent by the bot owner)
+  if (isBotOwnerMessage) {
+    if (commandText === "!stopall") {
+      const wasActive = Boolean(state.globalStop.active);
+      if (!wasActive) {
+        state.globalStop.active = true;
+        state.globalStop.since = Date.now();
+      }
+      await safeReply(
+        msg,
+        wasActive
+          ? "🛑 Global auto replies are already disabled."
+          : "🛑 Global auto replies disabled. I'll stay quiet until you send !startall.",
+        false
+      );
+      return true;
+    } else if (commandText === "!startall") {
+      const wasActive = Boolean(state.globalStop.active);
+      state.globalStop.active = false;
+      state.globalStop.since = 0;
+      if (state.stopList.size) {
+        state.stopList.clear();
+      }
+      await safeReply(
+        msg,
+        wasActive
+          ? "✅ Global auto replies re-enabled for all chats."
+          : "✅ Global auto replies were already enabled.",
+        false
+      );
+      return true;
+    }
+  }
+
+  // User commands (work for any user)
+  if (commandText === "!stop") {
+    state.stopList.set(chatId, Date.now());
+    await safeReply(msg, "🤖 Auto replies disabled for this chat for 24 hours.", false);
+    return true;
+  } else if (commandText === "!start") {
+    if (state.stopList.has(chatId)) {
+      state.stopList.delete(chatId);
+      await safeReply(msg, "🤖 Auto replies re-enabled for this chat.", false);
+    } else {
+      await safeReply(msg, "🤖 Auto replies were already enabled here.", false);
+    }
+    return true;
+  }
+
+  return false;
+}
+
 async function ensureSession(code) {
   if (sessions.has(code)) {
     return sessions.get(code);
@@ -189,7 +280,8 @@ async function ensureSession(code) {
     ready: false,
     startedAt: Date.now(),
     aiConfig: null,
-    globalStop: { active: false, since: 0 }, // Initialize here
+    botNumber: null, // Store bot's phone number for owner detection
+    globalStop: { active: false, since: 0 },
     stopList: new Map(),
     lastQrTimestamp: 0,
     chatHistory: new Map(),
@@ -282,7 +374,14 @@ function registerEventHandlers(code, state) {
   state.client.on("ready", () => {
     state.ready = true;
     state.startedAt = Date.now();
-    logger.info({ code }, "WhatsApp client ready");
+    
+    // Store bot information for owner detection
+    if (state.client.info && state.client.info.wid) {
+      state.botNumber = state.client.info.wid.user;
+      logger.info({ code, botNumber: state.botNumber }, "WhatsApp client ready");
+    } else {
+      logger.info({ code }, "WhatsApp client ready (no info available)");
+    }
   });
 
   state.client.on("disconnected", (reason) => {
@@ -318,12 +417,14 @@ function registerEventHandlers(code, state) {
     logger.error({ code, msg }, "WhatsApp authentication failure");
   });
 
-  state.client.on("message", async (msg) => {
-    const current = sessions.get(code);
-    if (!current || !current.ready) return;
-    if (msg.from.includes("@g.us")) return;
+    state.client.on("message", async (msg) => {
+      const current = sessions.get(code);
+      if (!current || !current.ready) return;
 
-    const chatId = msg.from;
+      // Determine chatId: for outgoing (owner) use msg.to, for incoming use msg.from
+      const chatId = msg.fromMe ? msg.to : msg.from;
+      // Skip group messages
+      if (typeof chatId === 'string' && chatId.includes('@g.us')) return;
     const config = current.aiConfig;
     const isVoiceMessage = msg.hasMedia && msg.type === "ptt"; // ptt = push-to-talk (voice note)
 
@@ -339,27 +440,22 @@ function registerEventHandlers(code, state) {
       current.startedAt &&
       messageTimestampMs + MESSAGE_TIMESTAMP_TOLERANCE_MS < current.startedAt
     ) {
-      logger.debug(
-        {
-          code,
-          chatId,
-          messageTimestampMs,
-          sessionStartedAt: current.startedAt,
-        },
-        "Skipping message received before session started"
-      );
       return;
     }
 
-    if (current.globalStop.active && !msg.fromMe) {
-      logger.debug({ code, chatId }, "Message ignored due to global stop");
+    // Process commands first (both from bot owner and users)
+    if (await processCommands(code, current, msg)) {
+      return; // If it was a command, stop further processing
+    }
+
+    // If we get here, it's not a command - proceed with normal message processing
+    if (current.globalStop.active && !isBotOwner(msg, code)) {
       return;
     }
 
     // Check stop list BEFORE processing voice (to save API costs)
     const stopTime = current.stopList.get(chatId);
     if (stopTime && Date.now() - stopTime < STOP_TIMEOUT_MS) {
-      logger.debug({ code, chatId }, "Message from stopped user - ignoring");
       return;
     } else if (stopTime) {
       current.stopList.delete(chatId);
@@ -370,7 +466,7 @@ function registerEventHandlers(code, state) {
     // Now process voice messages or text messages
     if (isVoiceMessage && config?.voiceReplyEnabled && config?.speechToTextApiKey) {
       try {
-        logger.debug({ code, chatId: msg.from }, "Processing voice message");
+  // Processing voice message
         
         // Download the audio
         const media = await msg.downloadMedia();
@@ -398,10 +494,7 @@ function registerEventHandlers(code, state) {
           return;
         }
         
-        logger.info(
-          { code, chatId: msg.from, transcribedLength: text.length },
-          "Voice message transcribed successfully"
-        );
+        // Voice message transcribed successfully
       } catch (error) {
         logger.error(
           { err: error, code, chatId: msg.from },
@@ -418,59 +511,10 @@ function registerEventHandlers(code, state) {
       if (!text) return;
     }
 
-    const commandText = text.toLowerCase();
-
-    if (msg.fromMe) {
-      if (commandText === "!stopall") {
-        const wasActive = Boolean(current.globalStop.active);
-        if (!wasActive) {
-          current.globalStop.active = true;
-          current.globalStop.since = Date.now();
-        }
-        await safeReply(
-          msg,
-          wasActive
-            ? "🛑 Global auto replies are already disabled."
-            : "🛑 Global auto replies disabled. I'll stay quiet until you send !startall.",
-          false
-        );
-        return;
-      } else if (commandText === "!startall") {
-        const wasActive = Boolean(current.globalStop.active);
-        current.globalStop.active = false;
-        current.globalStop.since = 0;
-        if (current.stopList.size) {
-          current.stopList.clear();
-        }
-        await safeReply(
-          msg,
-          wasActive
-            ? "✅ Global auto replies re-enabled for all chats."
-            : "✅ Global auto replies were already enabled.",
-          false
-        );
-        return;
-      } else if (commandText === "!stop") {
-        current.stopList.set(chatId, Date.now());
-        await safeReply(msg, "🤖 Auto replies disabled for this chat for 24 hours.", false);
-        return;
-      } else if (commandText === "!start") {
-        if (current.stopList.has(chatId)) {
-          current.stopList.delete(chatId);
-          await safeReply(msg, "🤖 Auto replies re-enabled for this chat.", false);
-        } else {
-          await safeReply(msg, "🤖 Auto replies were already enabled here.", false);
-        }
-        return;
-      }
-      // Do not process other outgoing messages for AI replies
-      return;
-    }
-
     appendHistoryEntry(current, chatId, { role: "user", text });
     persistChatMessage(code, chatId, "incoming", text);
 
-    if (!config) return;
+  if (!config) return;
 
     const customReply = findCustomReply(config.customReplies, text);
     if (customReply) {
@@ -494,7 +538,6 @@ function registerEventHandlers(code, state) {
     }
 
     if (!config.apiKey || !config.model) {
-      logger.debug({ code }, "Auto reply skipped: AI credentials missing");
       return;
     }
 
@@ -528,6 +571,24 @@ function registerEventHandlers(code, state) {
       } catch (replyError) {
         logger.error({ err: replyError, chatId }, "Failed to send error notification");
       }
+    }
+  });
+
+  // Listen for outgoing messages (commands) from the bot owner
+  state.client.on("message_create", async (msg) => {
+    try {
+      // Only handle owner messages
+      if (!msg.fromMe) return;
+      const stateObj = sessions.get(code);
+      if (!stateObj || !stateObj.ready) return;
+      // Process commands for outgoing messages
+      const handled = await processCommands(code, stateObj, msg);
+      if (handled) {
+        // Command processed; no further action
+        return;
+      }
+    } catch (err) {
+      logger.error({ err }, "Error handling outgoing message commands");
     }
   });
 }
