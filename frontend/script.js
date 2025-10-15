@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'waAutomation.sessionCode';
+const THEME_STORAGE_KEY = 'waAutomation.theme';
 
 const state = {
   code: '',
@@ -19,7 +20,47 @@ function sanitizeHTML(str) {
   return div.innerHTML;
 }
 
+// Theme management
+function getStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY);
+  } catch (error) {
+    return null;
+  }
+}
+
+function setStoredTheme(theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch (error) {
+    console.warn('Unable to store theme preference', error);
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  if (elements.themeIcon) {
+    elements.themeIcon.textContent = theme === 'dark' ? '☀️' : '🌙';
+  }
+  setStoredTheme(theme);
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  applyTheme(newTheme);
+}
+
+function initializeTheme() {
+  const storedTheme = getStoredTheme();
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const defaultTheme = storedTheme || (prefersDark ? 'dark' : 'light');
+  applyTheme(defaultTheme);
+}
+
 function cacheElements() {
+  elements.themeToggle = document.getElementById('themeToggle');
+  elements.themeIcon = elements.themeToggle?.querySelector('.theme-icon');
   elements.codeInput = document.getElementById('code');
   elements.startSessionBtn = document.getElementById('startSessionBtn');
   elements.authSection = document.getElementById('authSection');
@@ -27,6 +68,7 @@ function cacheElements() {
   elements.qrImg = document.getElementById('qrImg');
   elements.controlPanel = document.getElementById('controlPanel');
   elements.sessionIndicator = document.getElementById('sessionIndicator');
+  elements.memoryIndicator = document.getElementById('memoryIndicator');
   elements.logoutBtn = document.getElementById('logoutBtn');
   
   // Tab buttons
@@ -140,6 +182,32 @@ function updateSessionIndicator(code) {
   elements.logoutBtn?.classList.toggle('hidden', !code);
 }
 
+async function updateMemoryIndicator() {
+  if (!elements.memoryIndicator || !state.code) {
+    if (elements.memoryIndicator) {
+      elements.memoryIndicator.textContent = '';
+    }
+    return;
+  }
+
+  try {
+    const res = await fetch('/health');
+    if (!res.ok) {
+      throw new Error('Health check failed');
+    }
+    const data = await res.json();
+    const mem = data.memory;
+    if (mem) {
+      const heapPercent = mem.heapUsagePercent || 0;
+      const status = heapPercent > 80 ? '⚠️' : heapPercent > 60 ? '🟡' : '🟢';
+      elements.memoryIndicator.textContent = `${status} Heap: ${mem.heapUsed}MB (${heapPercent.toFixed(1)}%)`;
+    }
+  } catch (error) {
+    console.warn('Memory indicator update failed', error);
+    elements.memoryIndicator.textContent = 'Memory: N/A';
+  }
+}
+
 function resetUiToLoggedOut() {
   stopQrPolling();
   state.code = '';
@@ -250,6 +318,7 @@ async function pollQR() {
         showElement(elements.qrBox, false);
         showElement(elements.controlPanel, true);
         updateSessionIndicator(state.code);
+        updateMemoryIndicator();
         await Promise.all([loadAiConfig(), fetchScheduledMessages()]);
         return;
       }
@@ -333,6 +402,7 @@ async function resumeSessionFromStorage() {
     if (data.ready) {
       showElement(elements.qrBox, false);
       showElement(elements.controlPanel, true);
+      updateMemoryIndicator();
       await Promise.all([loadAiConfig(), fetchScheduledMessages()]);
     } else {
       await pollQR();
@@ -910,7 +980,11 @@ function handleScheduleTableClick(event) {
 
 document.addEventListener('DOMContentLoaded', () => {
   cacheElements();
-  
+  initializeTheme();
+
+  // Theme toggle
+  elements.themeToggle?.addEventListener('click', toggleTheme);
+
   // Auth
   elements.startSessionBtn?.addEventListener('click', startAuth);
   elements.logoutBtn?.addEventListener('click', logout);
