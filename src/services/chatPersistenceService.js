@@ -6,6 +6,7 @@ const { connectMongo, getCollection } = require("./mongoService");
 const MAX_MESSAGES_PER_CONTACT = 100;
 const FLUSH_INTERVAL_MS = 30_000;
 const MAX_BUFFER_SIZE = MAX_MESSAGES_PER_CONTACT * 2;
+const MAX_TOTAL_PENDING_MESSAGES = 10000; // Global limit
 
 let initialized = false;
 let flushTimer = null;
@@ -76,6 +77,19 @@ function queueMessageForPersistence({
   timestamp = new Date(),
 }) {
   if (!sessionCode || !contactId || !direction) {
+    return;
+  }
+
+  // Check global pending messages limit
+  let totalPending = 0;
+  for (const buffer of pendingMessages.values()) {
+    totalPending += buffer.length;
+  }
+  if (totalPending >= MAX_TOTAL_PENDING_MESSAGES) {
+    logger.warn(
+      { totalPending, max: MAX_TOTAL_PENDING_MESSAGES },
+      "Pending messages limit reached, dropping message"
+    );
     return;
   }
 

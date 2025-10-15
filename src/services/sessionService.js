@@ -32,13 +32,15 @@ const {
 const sessions = new Map();
 const SCHEDULE_RETRY_DELAY_MS = 5_000;
 const MESSAGE_TIMESTAMP_TOLERANCE_MS = 30_000; // 30s for clock skew tolerance
-const CHAT_HISTORY_PRUNE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-const CHAT_HISTORY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
-const MAX_CHAT_HISTORIES_PER_SESSION = 50; // Limit number of tracked chats
+const CHAT_HISTORY_PRUNE_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const CHAT_HISTORY_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
+const MAX_CHAT_HISTORIES_PER_SESSION = 25; // Reduced limit
+const MAX_MEMORY_MB = 768; // Target memory limit for low-memory environments
 
 let qrCodeLib = null;
 let whatsappDeps = null;
 let historyPruneInterval = null;
+let memoryMonitorInterval = null;
 
 function getQrCodeLib() {
   if (!qrCodeLib) {
@@ -67,7 +69,14 @@ const PUPPETEER_ARGS = [
   "--mute-audio",
   "--no-first-run",
   "--no-zygote",
-  "--disable-features=Translate",
+  "--disable-features=Translate,TranslateUI,VizDisplayCompositor",
+  "--disable-ipc-flooding-protection",
+  "--disable-background-timer-throttling",
+  "--disable-renderer-backgrounding",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-features=UserMediaScreenCapturing",
+  "--memory-pressure-off",
+  "--max_old_space_size=256",
 ];
 
 const AUTH_CODES_URL =
@@ -305,9 +314,6 @@ async function ensureSession(code) {
   registerEventHandlers(code, state);
   sessions.set(code, state);
 
-  // Start the chat history pruning interval when the first session is created
-  startHistoryPruneInterval();
-
   try {
     await client.initialize();
     await hydrateSessionState(code, state);
@@ -316,6 +322,9 @@ async function ensureSession(code) {
       const readyPromise = new Promise((resolve, reject) => {
         const onReady = () => {
           cleanup();
+          // Start intervals when ready
+          startHistoryPruneInterval();
+          startMemoryMonitorInterval();
           resolve(true);
         };
         const onAuthFailure = (msg) => {
@@ -342,7 +351,7 @@ async function ensureSession(code) {
       await Promise.race([
         readyPromise,
         new Promise((res) =>
-          setTimeout(() => res(false), env.SESSION_READY_TIMEOUT_MS)
+          setTimeout(() => res(false), 60000) // 60 seconds
         ),
       ]);
     } catch (err) {
@@ -519,6 +528,22 @@ function registerEventHandlers(code, state) {
           return;
         }
 
+        // Check audio size to prevent memory spikes (limit to 5MB)
+        const audioSizeMB = media.data.length / (1024 * 1024);
+        if (audioSizeMB > 5) {
+          logger.warn(
+            { code, chatId: msg.from, sizeMB: audioSizeMB },
+            "Voice message too large, rejecting to save memory"
+          );
+          await safeReply(
+            msg,
+            "❌ Sorry, your voice message is too large. Please send a shorter message.",
+            false
+          );
+          await markChatUnread(msg);
+          return;
+        }
+
         // Convert base64 to buffer
         const audioBuffer = Buffer.from(media.data, "base64");
 
@@ -663,9 +688,13 @@ function registerEventHandlers(code, state) {
       }
       // Capture owner outgoing messages to build persona
       if (msg.body && typeof msg.body === "string") {
-        stateObj.persona.push(msg.body.trim());
-        // Limit persona size to last 20 messages
-        if (stateObj.persona.length > 20) stateObj.persona.shift();
+        const trimmed = msg.body.trim();
+        if (trimmed) {
+          stateObj.persona.push(trimmed);
+          // Limit persona size based on memory
+          const maxPersona = checkMemoryPressure() ? 10 : 20;
+          if (stateObj.persona.length > maxPersona) stateObj.persona.shift();
+        }
       }
     } catch (err) {
       logger.error({ err }, "Error handling outgoing message commands");
@@ -1097,6 +1126,11 @@ async function shutdownAll() {
     clearInterval(historyPruneInterval);
     historyPruneInterval = null;
   }
+  // Clear memory monitor interval
+  if (memoryMonitorInterval) {
+    clearInterval(memoryMonitorInterval);
+    memoryMonitorInterval = null;
+  }
 
   for (const [code, session] of sessions.entries()) {
     try {
@@ -1152,7 +1186,7 @@ async function destroySession(code) {
 function clampContextWindow(value) {
   const numeric = Number(value);
   if (Number.isNaN(numeric)) {
-    return DEFAULT_CONTEXT_WINDOW;
+    return getEffectiveContextWindow(DEFAULT_CONTEXT_WINDOW);
   }
   if (numeric < MIN_CONTEXT_WINDOW) {
     return MIN_CONTEXT_WINDOW;
@@ -1160,7 +1194,12 @@ function clampContextWindow(value) {
   if (numeric > MAX_CONTEXT_WINDOW) {
     return MAX_CONTEXT_WINDOW;
   }
-  return Math.round(numeric);
+  return Math.round(getEffectiveContextWindow(numeric));
+}
+
+function getEffectiveContextWindow(desired) {
+  const isHighMemory = checkMemoryPressure();
+  return isHighMemory ? Math.max(MIN_CONTEXT_WINDOW, Math.floor(desired / 2)) : desired;
 }
 
 function sanitizeCustomReplies(list) {
@@ -1290,10 +1329,21 @@ function appendHistoryEntry(session, chatId, entry) {
  * Removes chat histories that haven't been accessed in CHAT_HISTORY_MAX_AGE_MS
  * and ensures total histories per session don't exceed MAX_CHAT_HISTORIES_PER_SESSION.
  */
+function checkMemoryPressure() {
+  const memUsage = process.memoryUsage();
+  const heapUsedMB = memUsage.heapUsed / 1024 / 1024;
+  return heapUsedMB > MAX_MEMORY_MB;
+}
+
 function pruneInactiveChatHistories() {
   const now = Date.now();
   let totalSessionsChecked = 0;
   let totalHistoriesRemoved = 0;
+  const isHighMemory = checkMemoryPressure();
+
+  // If high memory, be more aggressive
+  const effectiveMaxAge = isHighMemory ? CHAT_HISTORY_MAX_AGE_MS / 2 : CHAT_HISTORY_MAX_AGE_MS;
+  const effectiveMaxHistories = isHighMemory ? Math.floor(MAX_CHAT_HISTORIES_PER_SESSION / 2) : MAX_CHAT_HISTORIES_PER_SESSION;
 
   for (const [sessionCode, session] of sessions.entries()) {
     if (!session.chatHistory || session.chatHistory.size === 0) {
@@ -1314,7 +1364,7 @@ function pruneInactiveChatHistories() {
       const lastMessage = history[history.length - 1];
       const age = now - lastMessage.timestamp;
 
-      if (age > CHAT_HISTORY_MAX_AGE_MS) {
+      if (age > effectiveMaxAge) {
         historiesToRemove.push(chatId);
       }
     }
@@ -1325,9 +1375,9 @@ function pruneInactiveChatHistories() {
       totalHistoriesRemoved++;
     }
 
-    // Enforce max histories per session (already done in ensureChatHistory, but double-check here)
-    if (session.chatHistory.size > MAX_CHAT_HISTORIES_PER_SESSION) {
-      const excess = session.chatHistory.size - MAX_CHAT_HISTORIES_PER_SESSION;
+    // Enforce max histories per session
+    if (session.chatHistory.size > effectiveMaxHistories) {
+      const excess = session.chatHistory.size - effectiveMaxHistories;
       const chatIds = Array.from(session.chatHistory.keys());
 
       for (let i = 0; i < excess; i++) {
@@ -1336,12 +1386,13 @@ function pruneInactiveChatHistories() {
       }
     }
 
-    if (historiesToRemove.length > 0) {
+    if (historiesToRemove.length > 0 || session.chatHistory.size > effectiveMaxHistories) {
       logger.debug(
         {
           sessionCode,
-          removed: historiesToRemove.length,
+          removed: historiesToRemove.length + Math.max(0, session.chatHistory.size - effectiveMaxHistories),
           remaining: session.chatHistory.size,
+          highMemory: isHighMemory,
         },
         "Pruned inactive chat histories"
       );
@@ -1354,6 +1405,7 @@ function pruneInactiveChatHistories() {
         sessionsChecked: totalSessionsChecked,
         historiesRemoved: totalHistoriesRemoved,
         estimatedMemorySavedKB: Math.round(totalHistoriesRemoved * 2), // Rough estimate: 2KB per history
+        highMemory: isHighMemory,
       },
       "Chat history pruning cycle completed"
     );
@@ -1376,6 +1428,35 @@ function startHistoryPruneInterval() {
     { intervalMs: CHAT_HISTORY_PRUNE_INTERVAL_MS },
     "Started chat history pruning interval"
   );
+}
+
+/**
+ * Start the interval for monitoring memory usage.
+ */
+function startMemoryMonitorInterval() {
+  if (memoryMonitorInterval) {
+    return; // Already running
+  }
+
+  memoryMonitorInterval = setInterval(() => {
+    const memUsage = process.memoryUsage();
+    const heapUsedMB = memUsage.heapUsed / 1024 / 1024;
+    const rssMB = memUsage.rss / 1024 / 1024;
+
+    if (heapUsedMB > MAX_MEMORY_MB * 0.8) {
+      logger.warn(
+        {
+          heapUsedMB: Math.round(heapUsedMB),
+          rssMB: Math.round(rssMB),
+          maxMB: MAX_MEMORY_MB,
+          sessions: sessions.size,
+        },
+        "High memory usage detected"
+      );
+    }
+  }, 60 * 1000); // Check every minute
+
+  logger.info("Started memory monitor interval");
 }
 
 function persistChatMessage(sessionCode, contactId, direction, text) {
