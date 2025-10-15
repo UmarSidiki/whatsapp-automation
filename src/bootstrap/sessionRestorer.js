@@ -62,7 +62,7 @@ async function applyPersistedAiConfig(code) {
     }
 
     if (Object.keys(toApply).length) {
-      updateAiConfig(code, toApply);
+      await updateAiConfig(code, toApply);
       logger.debug({ code }, "Applied persisted AI config during session restore");
     }
   } catch (error) {

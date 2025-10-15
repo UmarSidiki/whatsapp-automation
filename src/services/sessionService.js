@@ -20,7 +20,8 @@ const {
   flushSessionMessages,
   loadMessages,
 } = require("./chatPersistenceService");
-const { loadSessionConfig } = require("./sessionConfigService");
+const { loadSessionConfig, saveAiConfig } = require("./sessionConfigService");
+const { savePersonaMessage, loadPersonaMessages } = require("./personaPersistenceService");
 const remoteAuthStore = require("./remoteAuthStore");
 const {
   saveScheduledJob,
@@ -309,6 +310,7 @@ async function ensureSession(code) {
     lastQrTimestamp: 0,
     chatHistory: new Map(),
     scheduledJobs: new Map(),
+    destroyed: false,
   };
 
   registerEventHandlers(code, state);
@@ -633,11 +635,14 @@ function registerEventHandlers(code, state) {
         } catch {
           // ignore persistence errors
         }
+        // Enhance system prompt with persona for style learning
+        const enhancedPrompt = enhanceSystemPromptWithPersona(config.systemPrompt, current.persona);
+
         // Generate reply using combined history
         const reply = await generateReply({
           apiKey: config.apiKey,
           model: config.model,
-          systemPrompt: config.systemPrompt,
+          systemPrompt: enhancedPrompt,
         }, augmentedHistory);
       if (reply) {
         const shouldSendAsVoice =
@@ -690,10 +695,15 @@ function registerEventHandlers(code, state) {
       if (msg.body && typeof msg.body === "string") {
         const trimmed = msg.body.trim();
         if (trimmed) {
+          // Save to database (automatically limits to 500 messages)
+          await savePersonaMessage(code, trimmed);
+          // Update in-memory persona for immediate use
           stateObj.persona.push(trimmed);
-          // Limit persona size based on memory
-          const maxPersona = checkMemoryPressure() ? 10 : 20;
-          if (stateObj.persona.length > maxPersona) stateObj.persona.shift();
+          // Keep in-memory limited for performance
+          const maxPersona = checkMemoryPressure() ? 50 : 100;
+          if (stateObj.persona.length > maxPersona) {
+            stateObj.persona = stateObj.persona.slice(-maxPersona);
+          }
         }
       }
     } catch (err) {
@@ -767,7 +777,7 @@ async function markChatUnread(msg) {
   }
 }
 
-function updateAiConfig(code, config) {
+async function updateAiConfig(code, config) {
   const session = sessions.get(code);
   if (!session) {
     throw new Error("Session not found");
@@ -788,6 +798,13 @@ function updateAiConfig(code, config) {
   );
 
   session.aiConfig = nextConfig;
+
+  // Persist the updated config including persona
+  try {
+    await saveAiConfig(code, nextConfig);
+  } catch (error) {
+    logger.error({ err: error, code }, "Failed to persist AI config update");
+  }
 
   const limit = nextConfig.contextWindow;
   for (const [chatId, history] of session.chatHistory.entries()) {
@@ -1202,6 +1219,25 @@ function getEffectiveContextWindow(desired) {
   return isHighMemory ? Math.max(MIN_CONTEXT_WINDOW, Math.floor(desired / 2)) : desired;
 }
 
+function enhanceSystemPromptWithPersona(basePrompt, persona) {
+  if (!Array.isArray(persona) || !persona.length) {
+    return basePrompt;
+  }
+
+  // Take up to 15 recent persona messages for better style learning
+  const recentPersona = persona.slice(-15);
+  const personaExamples = recentPersona
+    .map(msg => `"${msg}"`)
+    .join(', ');
+
+  const personaInstruction = `\n\nTo match my texting style, here are examples of how I typically communicate: ${personaExamples}. Please respond in a similar casual, natural tone and style.`;
+
+  const enhanced = basePrompt ? `${basePrompt}${personaInstruction}` : `You are a helpful AI assistant.${personaInstruction}`;
+
+  // Limit total prompt length to avoid exceeding API limits (increased for more examples)
+  return enhanced.length > 3000 ? enhanced.slice(0, 3000) + '...' : enhanced;
+}
+
 function sanitizeCustomReplies(list) {
   if (!Array.isArray(list)) {
     return [];
@@ -1540,6 +1576,8 @@ async function hydrateAiConfig(code, session) {
     baseConfig.customReplies = sanitizeCustomReplies(storedReplies);
 
     session.aiConfig = baseConfig;
+    // Load persona from dedicated database collection
+    session.persona = await loadPersonaMessages(code, 700);
   } catch (error) {
     logger.error({ err: error, code }, "Failed to hydrate AI configuration");
     if (!session.aiConfig) {
