@@ -26,34 +26,37 @@ async function savePersonaMessage(sessionCode, message) {
     await ensureIndexes();
     const collection = getCollection("personas");
 
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) return;
+
+    // Insert new message
     await collection.insertOne({
       sessionCode,
-      message: message.trim(),
+      message: trimmedMessage,
       timestamp: new Date(),
     });
 
-    // Keep only the most recent 700 messages per session
-    const count = await collection.countDocuments({ sessionCode });
-    if (count > 700) {
-      const toDelete = count - 700;
-      const oldestDocs = await collection
-        .find({ sessionCode })
-        .sort({ timestamp: 1 })
-        .limit(toDelete)
-        .toArray();
+    // Efficient cleanup: delete messages beyond the 1000th most recent
+    // This uses MongoDB's aggregation pipeline for better performance
+    const pipeline = [
+      { $match: { sessionCode } },
+      { $sort: { timestamp: -1 } },
+      { $skip: 1000 },
+      { $project: { _id: 1 } }
+    ];
 
-      if (oldestDocs.length) {
-        await collection.deleteMany({
-          _id: { $in: oldestDocs.map(doc => doc._id) }
-        });
-      }
+    const toDelete = await collection.aggregate(pipeline).toArray();
+    if (toDelete.length > 0) {
+      await collection.deleteMany({
+        _id: { $in: toDelete.map(doc => doc._id) }
+      });
     }
   } catch (error) {
     logger.error({ err: error, sessionCode }, "Failed to save persona message");
   }
 }
 
-async function loadPersonaMessages(sessionCode, limit = 500) {
+async function loadPersonaMessages(sessionCode, limit = 1000) {
   if (!sessionCode) {
     return [];
   }
@@ -75,22 +78,8 @@ async function loadPersonaMessages(sessionCode, limit = 500) {
   }
 }
 
-async function clearPersonaMessages(sessionCode) {
-  if (!sessionCode) {
-    return;
-  }
-
-  try {
-    await ensureIndexes();
-    const collection = getCollection("personas");
-    await collection.deleteMany({ sessionCode });
-  } catch (error) {
-    logger.error({ err: error, sessionCode }, "Failed to clear persona messages");
-  }
-}
 
 module.exports = {
   savePersonaMessage,
   loadPersonaMessages,
-  clearPersonaMessages,
 };

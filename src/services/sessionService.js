@@ -21,7 +21,10 @@ const {
   loadMessages,
 } = require("./chatPersistenceService");
 const { loadSessionConfig, saveAiConfig } = require("./sessionConfigService");
-const { savePersonaMessage, loadPersonaMessages } = require("./personaPersistenceService");
+const {
+  savePersonaMessage,
+  loadPersonaMessages,
+} = require("./personaPersistenceService");
 const remoteAuthStore = require("./remoteAuthStore");
 const {
   saveScheduledJob,
@@ -352,8 +355,8 @@ async function ensureSession(code) {
 
       await Promise.race([
         readyPromise,
-        new Promise((res) =>
-          setTimeout(() => res(false), 60000) // 60 seconds
+        new Promise(
+          (res) => setTimeout(() => res(false), 60000) // 60 seconds
         ),
       ]);
     } catch (err) {
@@ -627,23 +630,29 @@ function registerEventHandlers(code, state) {
     try {
       const contextWindow = clampContextWindow(config.contextWindow);
       const history = getHistoryForChat(current, chatId, contextWindow);
-        // In-memory chat history
-        let augmentedHistory = history;
-        try {
-          const persisted = await loadMessages(code, chatId, { limit: 20 });
-          augmentedHistory = [...persisted, ...history];
-        } catch {
-          // ignore persistence errors
-        }
-        // Enhance system prompt with persona for style learning
-        const enhancedPrompt = enhanceSystemPromptWithPersona(config.systemPrompt, current.persona);
+      // In-memory chat history
+      let augmentedHistory = history;
+      try {
+        const persisted = await loadMessages(code, chatId, { limit: 20 });
+        augmentedHistory = [...persisted, ...history];
+      } catch {
+        // ignore persistence errors
+      }
+      // Enhance system prompt with persona for style learning
+      const enhancedPrompt = enhanceSystemPromptWithPersona(
+        config.systemPrompt,
+        current.persona
+      );
 
-        // Generate reply using combined history
-        const reply = await generateReply({
+      // Generate reply using combined history
+      const reply = await generateReply(
+        {
           apiKey: config.apiKey,
           model: config.model,
           systemPrompt: enhancedPrompt,
-        }, augmentedHistory);
+        },
+        augmentedHistory
+      );
       if (reply) {
         const shouldSendAsVoice =
           isVoiceMessage &&
@@ -695,7 +704,7 @@ function registerEventHandlers(code, state) {
       if (msg.body && typeof msg.body === "string") {
         const trimmed = msg.body.trim();
         if (trimmed) {
-          // Save to database (automatically limits to 500 messages)
+          // Save to database (automatically limits to 700 messages)
           await savePersonaMessage(code, trimmed);
           // Update in-memory persona for immediate use
           stateObj.persona.push(trimmed);
@@ -1216,7 +1225,9 @@ function clampContextWindow(value) {
 
 function getEffectiveContextWindow(desired) {
   const isHighMemory = checkMemoryPressure();
-  return isHighMemory ? Math.max(MIN_CONTEXT_WINDOW, Math.floor(desired / 2)) : desired;
+  return isHighMemory
+    ? Math.max(MIN_CONTEXT_WINDOW, Math.floor(desired / 2))
+    : desired;
 }
 
 function enhanceSystemPromptWithPersona(basePrompt, persona) {
@@ -1224,18 +1235,18 @@ function enhanceSystemPromptWithPersona(basePrompt, persona) {
     return basePrompt;
   }
 
-  // Take up to 15 recent persona messages for better style learning
-  const recentPersona = persona.slice(-15);
-  const personaExamples = recentPersona
-    .map(msg => `"${msg}"`)
-    .join(', ');
+  // Take up to 50 recent persona messages for enhanced style learning
+  const recentPersona = persona.slice(-50);
+  const personaExamples = recentPersona.map((msg) => `"${msg}"`).join(", ");
 
-  const personaInstruction = `\n\nTo match my texting style, here are examples of how I typically communicate: ${personaExamples}. Please respond in a similar casual, natural tone and style.`;
+  const personaInstruction = `\n\nTo match my texting style, here are examples of how I typically communicate: ${personaExamples}. Please respond in a similar tone and style.`;
 
-  const enhanced = basePrompt ? `${basePrompt}${personaInstruction}` : `You are a helpful AI assistant.${personaInstruction}`;
+  const enhanced = basePrompt
+    ? `${basePrompt}${personaInstruction}`
+    : `You are a helpful AI assistant.${personaInstruction}`;
 
-  // Limit total prompt length to avoid exceeding API limits (increased for more examples)
-  return enhanced.length > 3000 ? enhanced.slice(0, 3000) + '...' : enhanced;
+  // Limit total prompt length to avoid exceeding API limits (increased for enhanced style learning)
+  return enhanced.length > 5000 ? enhanced.slice(0, 5000) + "..." : enhanced;
 }
 
 function sanitizeCustomReplies(list) {
@@ -1378,8 +1389,12 @@ function pruneInactiveChatHistories() {
   const isHighMemory = checkMemoryPressure();
 
   // If high memory, be more aggressive
-  const effectiveMaxAge = isHighMemory ? CHAT_HISTORY_MAX_AGE_MS / 2 : CHAT_HISTORY_MAX_AGE_MS;
-  const effectiveMaxHistories = isHighMemory ? Math.floor(MAX_CHAT_HISTORIES_PER_SESSION / 2) : MAX_CHAT_HISTORIES_PER_SESSION;
+  const effectiveMaxAge = isHighMemory
+    ? CHAT_HISTORY_MAX_AGE_MS / 2
+    : CHAT_HISTORY_MAX_AGE_MS;
+  const effectiveMaxHistories = isHighMemory
+    ? Math.floor(MAX_CHAT_HISTORIES_PER_SESSION / 2)
+    : MAX_CHAT_HISTORIES_PER_SESSION;
 
   for (const [sessionCode, session] of sessions.entries()) {
     if (!session.chatHistory || session.chatHistory.size === 0) {
@@ -1422,11 +1437,16 @@ function pruneInactiveChatHistories() {
       }
     }
 
-    if (historiesToRemove.length > 0 || session.chatHistory.size > effectiveMaxHistories) {
+    if (
+      historiesToRemove.length > 0 ||
+      session.chatHistory.size > effectiveMaxHistories
+    ) {
       logger.debug(
         {
           sessionCode,
-          removed: historiesToRemove.length + Math.max(0, session.chatHistory.size - effectiveMaxHistories),
+          removed:
+            historiesToRemove.length +
+            Math.max(0, session.chatHistory.size - effectiveMaxHistories),
           remaining: session.chatHistory.size,
           highMemory: isHighMemory,
         },
@@ -1576,8 +1596,8 @@ async function hydrateAiConfig(code, session) {
     baseConfig.customReplies = sanitizeCustomReplies(storedReplies);
 
     session.aiConfig = baseConfig;
-    // Load persona from dedicated database collection
-    session.persona = await loadPersonaMessages(code, 700);
+    // Load recent persona messages from database (load 300 for better style learning, full 1000 available if needed)
+    session.persona = await loadPersonaMessages(code, 300);
   } catch (error) {
     logger.error({ err: error, code }, "Failed to hydrate AI configuration");
     if (!session.aiConfig) {
