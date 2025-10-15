@@ -24,7 +24,7 @@ function sanitizeHTML(str) {
 function getStoredTheme() {
   try {
     return localStorage.getItem(THEME_STORAGE_KEY);
-  } catch (error) {
+  } catch {
     return null;
   }
 }
