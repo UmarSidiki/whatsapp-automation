@@ -68,7 +68,6 @@ function cacheElements() {
   elements.qrImg = document.getElementById('qrImg');
   elements.controlPanel = document.getElementById('controlPanel');
   elements.sessionIndicator = document.getElementById('sessionIndicator');
-  elements.memoryIndicator = document.getElementById('memoryIndicator');
   elements.logoutBtn = document.getElementById('logoutBtn');
   
   // Tab buttons
@@ -186,43 +185,6 @@ function updateSessionIndicator(code) {
   elements.logoutBtn?.classList.toggle('hidden', !code);
 }
 
-async function updateMemoryIndicator() {
-  if (!elements.memoryIndicator || !state.code) {
-    if (elements.memoryIndicator) {
-      elements.memoryIndicator.textContent = '';
-    }
-    return;
-  }
-
-  try {
-    const res = await fetch('/health');
-    if (!res.ok) {
-      throw new Error('Health check failed');
-    }
-    const data = await res.json();
-    const system = data.system;
-    if (system) {
-      const memPercent = system.memory.usagePercent || 0;
-      const cpuPercent = system.cpu.usagePercent || 0;
-      const diskPercent = system.disk?.usagePercent || 0;
-
-      const memStatus = memPercent > 80 ? '⚠️' : memPercent > 60 ? '🟡' : '🟢';
-      const cpuStatus = cpuPercent > 80 ? '🔴' : cpuPercent > 60 ? '🟡' : '🟢';
-      const diskStatus = diskPercent > 90 ? '🔴' : diskPercent > 75 ? '🟡' : '🟢';
-
-      // For low-resource systems, show disk usage too
-      const isLowResource = system.memory?.totalGB < 2; // Less than 2GB RAM indicates low-resource
-      if (isLowResource && diskPercent > 0) {
-        elements.memoryIndicator.textContent = `${memStatus} RAM: ${memPercent.toFixed(1)}% ${cpuStatus} CPU: ${cpuPercent.toFixed(1)}% ${diskStatus} Disk: ${diskPercent}%`;
-      } else {
-        elements.memoryIndicator.textContent = `${memStatus} RAM: ${memPercent.toFixed(1)}% ${cpuStatus} CPU: ${cpuPercent.toFixed(1)}%`;
-      }
-    }
-  } catch (error) {
-    console.warn('System usage indicator update failed', error);
-    elements.memoryIndicator.textContent = 'System: N/A';
-  }
-}
 
 function resetUiToLoggedOut() {
   stopQrPolling();
@@ -334,7 +296,6 @@ async function pollQR() {
         showElement(elements.qrBox, false);
         showElement(elements.controlPanel, true);
         updateSessionIndicator(state.code);
-        updateMemoryIndicator();
         await Promise.all([loadAiConfig(), fetchScheduledMessages()]);
         return;
       }
@@ -418,7 +379,6 @@ async function resumeSessionFromStorage() {
     if (data.ready) {
       showElement(elements.qrBox, false);
       showElement(elements.controlPanel, true);
-      updateMemoryIndicator();
       await Promise.all([loadAiConfig(), fetchScheduledMessages()]);
     } else {
       await pollQR();

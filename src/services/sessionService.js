@@ -16,7 +16,6 @@ const remoteAuthStore = require("./remoteAuthStore");
 const messageHandler = require("./messaging/messageHandler");
 const chatHistoryManager = require("./messaging/chatHistoryManager");
 const scheduledJobManager = require("./scheduling/scheduledJobManager");
-const systemMonitor = require("./monitoring/systemMonitor");
 
 const sessions = new Map();
 
@@ -217,7 +216,6 @@ async function ensureSession(code) {
           cleanup();
           // Start intervals when ready
           chatHistoryManager.startHistoryPruneInterval(sessions);
-          systemMonitor.startMemoryMonitorInterval(sessions);
           resolve(true);
         };
         const onAuthFailure = (msg) => {
@@ -481,7 +479,6 @@ async function removeScheduledMessage(code, jobId) {
 async function shutdownAll() {
   // Clear intervals
   chatHistoryManager.stopHistoryPruneInterval();
-  systemMonitor.stopMemoryMonitorInterval();
 
   for (const [code, session] of sessions.entries()) {
     try {

@@ -5,140 +5,43 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="referrer" content="no-referrer">
-    <style>
-    :root {
-      --bg-primary: #ffffff;
-      --bg-secondary: #f8f9fa;
-      --bg-tertiary: #e9ecef;
-      --text-primary: #212529;
-      --text-secondary: #6c757d;
-      --text-muted: #adb5bd;
-      --border: #dee2e6;
-      --border-hover: #adb5bd;
-      --accent: #007bff;
-      --accent-hover: #0056b3;
-      --success: #28a745;
-      --warning: #ffc107;
-      --danger: #dc3545;
-      --shadow: rgba(0, 0, 0, 0.1);
-      --shadow-hover: rgba(0, 0, 0, 0.15);
-      --radius: 8px;
-      --transition: all 0.2s ease;
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#eff6ff',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            },
+            success: '#10b981',
+            warning: '#f59e0b',
+            danger: '#ef4444',
+          },
+          animation: {
+            'spin': 'spin 1s linear infinite',
+            'fade-in': 'fadeIn 0.3s ease-in-out',
+          },
+          keyframes: {
+            spin: {
+              '0%': { transform: 'translate(-50%, -50%) rotate(0deg)' },
+              '100%': { transform: 'translate(-50%, -50%) rotate(360deg)' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0', transform: 'translateY(10px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            }
+          }
+        }
+      }
     }
-
-    [data-theme="dark"] {
-      --bg-primary: #1a1a1a;
-      --bg-secondary: #2d2d2d;
-      --bg-tertiary: #404040;
-      --text-primary: #ffffff;
-      --text-secondary: #cccccc;
-      --text-muted: #888888;
-      --border: #555555;
-      --border-hover: #777777;
-      --accent: #0d6efd;
-      --accent-hover: #0b5ed7;
-      --shadow: rgba(0, 0, 0, 0.3);
-      --shadow-hover: rgba(0, 0, 0, 0.4);
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-      line-height: 1.6;
-      transition: var(--transition);
-    }
-    header {
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      box-shadow: 0 2px 4px var(--shadow);
-    }
-    header h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      letter-spacing: -0.025em;
-      margin: 0;
-    }
-    .theme-toggle {
-      background: none;
-      border: none;
-      font-size: 1.5rem;
-      cursor: pointer;
-      padding: 8px;
-      border-radius: var(--radius);
-      transition: var(--transition);
-      color: var(--text-primary);
-    }
-    .theme-toggle:hover {
-      background: var(--bg-primary);
-      box-shadow: 0 2px 8px var(--shadow);
-    }
-    main {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    .card {
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      margin-bottom: 24px;
-      box-shadow: 0 4px 6px var(--shadow);
-      border-radius: var(--radius);
-      overflow: hidden;
-      transition: var(--transition);
-    }
-    .card:hover {
-      box-shadow: 0 8px 16px var(--shadow-hover);
-      transform: translateY(-1px);
-    }
-    .card-header {
-      background: var(--bg-tertiary);
-      padding: 20px 24px;
-      border-bottom: 1px solid var(--border);
-      font-weight: 600;
-      font-size: 1.1rem;
-      color: var(--text-primary);
-    }
-    .card-body {
-      padding: 24px;
-    }
-    .tabs {
-      display: flex;
-      background: var(--bg-tertiary);
-      border-bottom: 2px solid var(--accent);
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-    }
-    .tab-button {
-      background: transparent;
-      border: none;
-      padding: 16px 24px;
-      cursor: pointer;
-      font-size: 0.95rem;
-      font-weight: 500;
-      color: var(--text-secondary);
-      border-bottom: 3px solid transparent;
-      transition: var(--transition);
-      white-space: nowrap;
-      flex-shrink: 0;
-      position: relative;
-    }
-    .tab-button:hover {
-      background: var(--bg-primary);
-      color: var(--text-primary);
-    }
-    .tab-button.active {
-      color: var(--accent);
-      border-bottom-color: var(--accent);
-      background: var(--bg-primary);
-      font-weight: 600;
-    }
+  </script>
+  <style>
+    /* Custom styles for elements that Tailwind doesn't handle well */
     .tab-button.active::after {
       content: '';
       position: absolute;
@@ -147,96 +50,10 @@
       transform: translateX(-50%);
       width: 20px;
       height: 3px;
-      background: var(--accent);
+      background: #3b82f6;
       border-radius: 2px 2px 0 0;
     }
-    .tab-content {
-      display: none;
-      padding: 24px;
-      background: var(--bg-primary);
-      animation: fadeIn 0.3s ease-in-out;
-    }
-    .tab-content.active {
-      display: block;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    label {
-      display: block;
-      font-weight: 500;
-      font-size: 0.875rem;
-      margin-bottom: 6px;
-      color: #333;
-    }
-    input[type="text"],
-    input[type="number"],
-    input[type="password"],
-    input[type="datetime-local"],
-    input[type="file"],
-    textarea,
-    select {
-      width: 100%;
-      padding: 12px 16px;
-      border: 2px solid var(--border);
-      font-size: 0.95rem;
-      margin-bottom: 16px;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      font-family: inherit;
-      border-radius: var(--radius);
-      transition: var(--transition);
-    }
-    input:focus,
-    textarea:focus,
-    select:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
-    }
-    input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      margin: 0 8px 0 0;
-      cursor: pointer;
-    }
-    textarea {
-      resize: vertical;
-      min-height: 100px;
-    }
-    button {
-      background: var(--accent);
-      border: 2px solid var(--accent);
-      color: white;
-      padding: 12px 24px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: var(--transition);
-      font-family: inherit;
-      border-radius: var(--radius);
-      box-shadow: 0 2px 4px var(--shadow);
-    }
-    button:hover:not(:disabled) {
-      background: var(--accent-hover);
-      border-color: var(--accent-hover);
-      transform: translateY(-1px);
-      box-shadow: 0 4px 8px var(--shadow);
-    }
-    button:active:not(:disabled) {
-      transform: translateY(0);
-    }
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
-    button.loading {
-      position: relative;
-      color: transparent !important;
-    }
+    
     button.loading::after {
       content: '';
       position: absolute;
@@ -250,321 +67,147 @@
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }
+    
     @keyframes spin {
       0% { transform: translate(-50%, -50%) rotate(0deg); }
       100% { transform: translate(-50%, -50%) rotate(360deg); }
     }
-    button.secondary {
-      background: var(--bg-tertiary);
-      border-color: var(--border);
-      color: var(--text-primary);
-    }
-    button.secondary:hover:not(:disabled) {
-      background: var(--bg-primary);
-      border-color: var(--border-hover);
-    }
-    button.danger {
-      background: var(--danger);
-      border-color: var(--danger);
-    }
-    button.danger:hover:not(:disabled) {
-      background: #b02a37;
-      border-color: #b02a37;
-    }
-    button.small {
-      padding: 8px 16px;
-      font-size: 0.85rem;
-      font-weight: 500;
-    }
-    .control-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 16px 24px;
-      background: var(--bg-tertiary);
-      border-bottom: 1px solid var(--border);
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .session-indicator {
-      font-size: 0.9rem;
-      color: var(--text-primary);
-      font-weight: 500;
-    }
-    .memory-indicator {
-      font-size: 0.8rem;
-      color: var(--text-secondary);
-      font-weight: 400;
-      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    }
-    img {
-      max-width: 100%;
-      width: 100%;
-      margin-top: 12px;
-      border: 2px solid #ccc;
-      border-radius: 6px;
-    }
-    #qrImg {
-      width: 280px;
-      max-width: 90vw;
-      height: auto;
-      display: block;
-      margin: 12px auto 0;
-    }
-    .hidden {
-      display: none !important;
-    }
-    .grid {
-      display: grid;
-      gap: 16px;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    }
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-    .toggle-row label {
-      margin: 0;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 16px;
-      font-size: 0.9rem;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow-x: auto;
-      display: block;
-      background: var(--bg-primary);
-    }
-    th, td {
-      border: 1px solid var(--border);
-      padding: 12px 16px;
-      text-align: left;
-      white-space: nowrap;
-    }
-    th {
-      background: var(--bg-tertiary);
-      font-weight: 600;
-      border-bottom: 2px solid var(--accent);
-      color: var(--text-primary);
-    }
-    tbody tr:nth-child(even) {
-      background: var(--bg-secondary);
-    }
-    tbody tr:hover {
-      background: var(--bg-tertiary);
-    }
-    .status {
-      margin-top: 16px;
-      padding: 16px 20px;
-      font-size: 0.9rem;
-      border-left: 4px solid var(--text-secondary);
-      background: var(--bg-tertiary);
-      border-radius: var(--radius);
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .status.error {
-      border-left-color: var(--danger);
-      background: rgba(220, 53, 69, 0.1);
-      color: var(--danger);
-    }
-    .status.success {
-      border-left-color: var(--success);
-      background: rgba(40, 167, 69, 0.1);
-      color: var(--success);
-    }
-    .help-text {
-      display: block;
-      margin-top: 6px;
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      font-style: italic;
-    }
-    .info-box {
-      padding: 16px 20px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      margin-bottom: 20px;
-      font-size: 0.9rem;
-      color: var(--text-secondary);
-      border-radius: var(--radius);
-      border-left: 4px solid var(--accent);
-    }
-    .batch-input {
-      margin-bottom: 16px;
-      padding: 16px;
-      background: #fafafa;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-    }
-    .batch-input h5 {
-      margin-bottom: 12px;
-      font-size: 0.9rem;
-      font-weight: 600;
-    }
-    .button-group {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .field-group {
-      margin-bottom: 20px;
-    }
-
-    /* Responsive Enhancements */
-    @media (max-width: 768px) {
-      main { padding: 16px; }
-      header h1 { font-size: 1.1rem; }
-      .card-body, .tab-content { padding: 16px; }
-      .control-bar { flex-direction: column; align-items: flex-start; gap: 8px; }
-      .tab-button { padding: 10px 16px; font-size: 0.85rem; }
-      th, td { padding: 8px; font-size: 0.8rem; }
-    }
-
-    @media (max-width: 480px) {
-      header h1 { font-size: 1rem; }
-      button { width: 100%; }
-      .button-group { flex-direction: column; }
-      .tab-button { padding: 8px 12px; }
-      .card-body, .tab-content { padding: 12px; }
-      .info-box { font-size: 0.8rem; }
-    }
   </style>
-  </head>
-<body>
-  <header>
-    <h1>WhatsApp Automation Console</h1>
-    <button id="themeToggle" type="button" class="theme-toggle" aria-label="Toggle theme">
-      <span class="theme-icon">🌙</span>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+  <header class="bg-gray-200 dark:bg-gray-800 p-4 sm:p-6 border-b border-gray-300 dark:border-gray-700 flex justify-between items-center shadow-md">
+    <h1 class="text-xl sm:text-2xl font-bold">WhatsApp Automation Console</h1>
+    <button id="themeToggle" type="button" class="p-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors" aria-label="Toggle theme">
+      <span class="theme-icon text-xl">🌙</span>
     </button>
   </header>
 
-  <main>
+  <main class="max-w-7xl mx-auto p-4 sm:p-6">
     <!-- Authentication Section -->
-    <div class="card" id="authSection">
-      <div class="card-header">Connect WhatsApp Session</div>
-      <div class="card-body">
-        <div class="field-group">
-          <label for="code">Authentication code</label>
-          <input id="code" type="password" placeholder="Enter your auth code" autocomplete="one-time-code" required/>
+    <div id="authSection" class="bg-white dark:bg-gray-800 rounded-lg shadow-md mb-6 overflow-hidden">
+      <div class="bg-gray-100 dark:bg-gray-700 p-4 sm:p-5 border-b border-gray-200 dark:border-gray-600 font-semibold text-lg">Connect WhatsApp Session</div>
+      <div class="p-4 sm:p-6">
+        <div class="mb-4">
+          <label for="code" class="block text-sm font-medium mb-2">Authentication code</label>
+          <input id="code" type="password" placeholder="Enter your auth code" autocomplete="one-time-code" required 
+                 class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
         </div>
-        <button id="startSessionBtn" type="button">Start session</button>
+        <button id="startSessionBtn" type="button" class="bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">Start session</button>
       </div>
     </div>
 
     <!-- QR Code Section -->
-    <div class="card hidden" id="qrBox">
-      <div class="card-header">WhatsApp QR Authentication</div>
-      <div class="card-body">
-        <div class="info-box">
+    <div id="qrBox" class="bg-white dark:bg-gray-800 rounded-lg shadow-md mb-6 overflow-hidden hidden">
+      <div class="bg-gray-100 dark:bg-gray-700 p-4 sm:p-5 border-b border-gray-200 dark:border-gray-600 font-semibold text-lg">WhatsApp QR Authentication</div>
+      <div class="p-4 sm:p-6">
+        <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 mb-4 rounded text-sm">
           Open WhatsApp on your phone → Settings → Linked Devices → Link a Device → Scan the QR code below
         </div>
-        <img id="qrImg" alt="WhatsApp QR code" width="300"/>
+        <img id="qrImg" alt="WhatsApp QR code" class="w-64 max-w-[90vw] h-auto mx-auto mt-3 border-2 border-gray-300 dark:border-gray-600 rounded-lg"/>
       </div>
     </div>
 
     <!-- Main Control Panel (Tabbed) -->
-    <div class="card hidden" id="controlPanel">
-      <div class="control-bar">
-        <div class="session-indicator" id="sessionIndicator" aria-live="polite">Not connected</div>
-        <div class="memory-indicator" id="memoryIndicator" aria-live="polite">System: Loading...</div>
-        <button id="logoutBtn" type="button" class="secondary small hidden">Logout</button>
+    <div id="controlPanel" class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hidden">
+      <div class="bg-gray-100 dark:bg-gray-700 p-4 sm:p-5 border-b border-gray-200 dark:border-gray-600 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div id="sessionIndicator" class="text-sm font-medium" aria-live="polite">Not connected</div>
+        <button id="logoutBtn" type="button" class="bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-200 font-medium py-1 px-3 rounded text-sm hidden">Logout</button>
       </div>
-      <div class="tabs">
-        <button class="tab-button active" data-tab="aiConfig">🤖 AI Configuration</button>
-        <button class="tab-button" data-tab="customReplies">💬 Custom Replies</button>
-        <button class="tab-button" data-tab="bulkMessages">📤 Bulk Messaging</button>
-        <button class="tab-button" data-tab="scheduling">⏰ Scheduling</button>
-        <button class="tab-button" data-tab="utils">🔧 Utils</button>
+      
+      <div class="flex bg-gray-100 dark:bg-gray-700 border-b-2 border-primary-500 overflow-x-auto">
+        <button class="tab-button active py-4 px-4 sm:px-6 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border-b-3 border-transparent relative whitespace-nowrap" data-tab="aiConfig">🤖 AI Configuration</button>
+        <button class="tab-button py-4 px-4 sm:px-6 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border-b-3 border-transparent relative whitespace-nowrap" data-tab="customReplies">💬 Custom Replies</button>
+        <button class="tab-button py-4 px-4 sm:px-6 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border-b-3 border-transparent relative whitespace-nowrap" data-tab="bulkMessages">📤 Bulk Messaging</button>
+        <button class="tab-button py-4 px-4 sm:px-6 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border-b-3 border-transparent relative whitespace-nowrap" data-tab="scheduling">⏰ Scheduling</button>
+        <button class="tab-button py-4 px-4 sm:px-6 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border-b-3 border-transparent relative whitespace-nowrap" data-tab="utils">🔧 Utils</button>
       </div>
 
       <!-- AI Configuration Tab -->
-      <div class="tab-content active" id="aiConfig">
-        <div class="info-box">
+      <div class="tab-content active p-4 sm:p-6 animate-fade-in" id="aiConfig">
+        <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 mb-6 rounded text-sm">
           AI credentials and settings persist in MongoDB and reload automatically whenever this session reconnects.
         </div>
-        <div class="field-group">
-          <div class="grid">
+        
+        <div class="mb-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label for="apiKey">Gemini API key *</label>
-              <input id="apiKey" type="password" placeholder="Enter your API key" autocomplete="off" required/>
-              <small id="apiKeyHint" class="help-text hidden"></small>
+              <label for="apiKey" class="block text-sm font-medium mb-2">Gemini API key *</label>
+              <input id="apiKey" type="password" placeholder="Enter your API key" autocomplete="off" required 
+                     class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
+              <small id="apiKeyHint" class="text-xs text-gray-500 dark:text-gray-400 mt-1 hidden"></small>
             </div>
             <div>
-              <label for="model">Model name *</label>
-              <input id="model" type="text" placeholder="gemini-1.5-flash" required/>
+              <label for="model" class="block text-sm font-medium mb-2">Model name *</label>
+              <input id="model" type="text" placeholder="gemini-1.5-flash" required 
+                     class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
             </div>
           </div>
         </div>
 
-        <div class="field-group">
-          <label for="systemPrompt">System prompt (optional)</label>
-          <textarea id="systemPrompt" rows="4" placeholder="Define the assistant's personality, tone, and context here"></textarea>
+        <div class="mb-6">
+          <label for="systemPrompt" class="block text-sm font-medium mb-2">System prompt (optional)</label>
+          <textarea id="systemPrompt" rows="4" placeholder="Define the assistant's personality, tone, and context here" 
+                    class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors resize-y min-h-[100px]"></textarea>
         </div>
 
-        <div class="field-group">
-          <div class="toggle-row">
-            <input type="checkbox" id="autoReplyEnabled" checked>
-            <label for="autoReplyEnabled">Enable automatic AI replies</label>
+        <div class="mb-6">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="autoReplyEnabled" checked class="w-4 h-4 text-primary-600 bg-gray-100 border-gray-300 rounded focus:ring-primary-500 dark:focus:ring-primary-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
+            <label for="autoReplyEnabled" class="text-sm font-medium">Enable automatic AI replies</label>
           </div>
         </div>
 
-        <div class="field-group">
-          <label for="contextWindow">Conversation memory (messages to retain: 10-100)</label>
-          <input id="contextWindow" type="number" min="10" max="100" value="50">
-          <div class="info-box">
+        <div class="mb-6">
+          <label for="contextWindow" class="block text-sm font-medium mb-2">Conversation memory (messages to retain: 10-100)</label>
+          <input id="contextWindow" type="number" min="10" max="100" value="50" 
+                 class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
+          <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 mt-3 rounded text-sm">
             The AI will remember the last N messages from each conversation to provide contextual responses.
             <strong>Memory efficient:</strong> Chat history is stored in database and loaded on-demand, not kept in RAM.
           </div>
         </div>
 
-        <div class="field-group">
-          <h4 style="margin-bottom: 12px;">AI Training Data</h4>
-          <div class="info-box">
+        <div class="mb-6">
+          <h4 class="text-lg font-semibold mb-3">AI Training Data</h4>
+          <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 mb-4 rounded text-sm">
             <strong>Enhanced AI Learning:</strong> The AI analyzes your conversation patterns including message length, formality, emoji usage, punctuation style, and messaging patterns (incremental vs complete responses).
             <br><br>
             <strong>Smart Features:</strong>
-            <ul style="margin: 8px 0 0 20px; padding: 0;">
+            <ul class="mt-2 ml-5 list-disc">
               <li>Detects if you send messages "bit by bit" and adapts responses accordingly</li>
               <li>Learns your preferred message length and communication style</li>
               <li>Analyzes conversation context for better replies</li>
               <li>Weighted learning prioritizes recent messages</li>
             </ul>
           </div>
-          <button id="loadPersonaMessagesBtn" type="button" class="secondary small">Load Training Messages</button>
-          <div id="personaMessagesContainer" class="hidden" style="margin-top: 16px;">
-            <div id="personaMessagesList" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border); padding: 12px; background: var(--bg-primary); border-radius: var(--radius);"></div>
-            <div id="personaMessagesCount" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-muted);"></div>
+          <button id="loadPersonaMessagesBtn" type="button" class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-medium py-2 px-4 rounded-lg text-sm transition-colors">Load Training Messages</button>
+          <div id="personaMessagesContainer" class="hidden mt-4">
+            <div id="personaMessagesList" class="max-h-[300px] overflow-y-auto border border-gray-300 dark:border-gray-600 p-3 bg-white dark:bg-gray-700 rounded-lg"></div>
+            <div id="personaMessagesCount" class="mt-2 text-xs text-gray-500 dark:text-gray-400"></div>
           </div>
         </div>
 
-        <button id="saveAiBtn" type="button">Save AI configuration</button>
-        <div id="aiStatus" class="status hidden" aria-live="polite"></div>
+        <button id="saveAiBtn" type="button" class="bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">Save AI configuration</button>
+        <div id="aiStatus" class="mt-4 p-4 text-sm border-l-4 bg-gray-100 dark:bg-gray-700 rounded-lg hidden" aria-live="polite"></div>
       </div>
 
       <!-- Custom Replies Tab -->
-      <div class="tab-content" id="customReplies">
-        <div class="info-box">
+      <div class="tab-content p-4 sm:p-6 hidden animate-fade-in" id="customReplies">
+        <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 mb-6 rounded text-sm">
           Custom replies trigger before AI processing. Use them for FAQs, greetings, or keyword-based responses. Saved rules are persisted in MongoDB and reload automatically when you sign back in.
         </div>
 
-        <div class="batch-input">
-          <h5>Add custom reply rules</h5>
-          <div class="grid">
+        <div class="bg-gray-50 dark:bg-gray-700 p-4 mb-6 rounded-lg">
+          <h5 class="mb-3 text-sm font-semibold">Add custom reply rules</h5>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-              <label for="customTrigger">Trigger text</label>
-              <input id="customTrigger" type="text" placeholder="E.g., pricing, hello, help"/>
+              <label for="customTrigger" class="block text-sm font-medium mb-2">Trigger text</label>
+              <input id="customTrigger" type="text" placeholder="E.g., pricing, hello, help" 
+                     class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
             </div>
             <div>
-              <label for="customMatchType">Match type</label>
-              <select id="customMatchType">
+              <label for="customMatchType" class="block text-sm font-medium mb-2">Match type</label>
+              <select id="customMatchType" class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors">
                 <option value="contains">Contains (case-insensitive)</option>
                 <option value="exact">Exact match</option>
                 <option value="startsWith">Starts with</option>
@@ -572,168 +215,182 @@
               </select>
             </div>
           </div>
-          <label for="customResponse">Response message</label>
-          <textarea id="customResponse" rows="3" placeholder="The message to send when this trigger matches"></textarea>
-          <button id="addCustomReplyBtn" type="button" class="secondary">Add reply rule</button>
+          <label for="customResponse" class="block text-sm font-medium mb-2">Response message</label>
+          <textarea id="customResponse" rows="3" placeholder="The message to send when this trigger matches" 
+                    class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors resize-y mb-4"></textarea>
+          <button id="addCustomReplyBtn" type="button" class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-medium py-2 px-4 rounded-lg text-sm transition-colors">Add reply rule</button>
         </div>
 
-        <div class="field-group">
-          <h5>Batch import (one rule per line)</h5>
+        <div class="mb-6">
+          <h5 class="text-sm font-semibold mb-3">Batch import (one rule per line)</h5>
           <textarea id="batchCustomReplies" rows="6" placeholder="Format: trigger|matchType|response
 Example:
 hello|contains|Hi there! How can I help you?
 pricing|startsWith|Our pricing starts at $99/month
-support|exact|Contact support@example.com"></textarea>
-          <button id="importBatchBtn" type="button" class="secondary">Import batch rules</button>
+support|exact|Contact support@example.com" 
+                    class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors resize-y mb-4"></textarea>
+          <button id="importBatchBtn" type="button" class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-medium py-2 px-4 rounded-lg text-sm transition-colors">Import batch rules</button>
         </div>
 
-        <table id="customRepliesTable" class="hidden">
-          <thead>
-            <tr>
-              <th>Trigger</th>
-              <th>Match type</th>
-              <th>Response</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-
-        <div class="button-group" style="margin-top: 16px;">
-          <button id="saveCustomRepliesBtn" type="button">Save custom replies</button>
-          <button id="clearAllRepliesBtn" type="button" class="danger">Clear all</button>
+        <div id="customRepliesTable" class="overflow-x-auto hidden">
+          <table class="w-full border-collapse text-sm border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden bg-white dark:bg-gray-800">
+            <thead>
+              <tr class="bg-gray-100 dark:bg-gray-700">
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Trigger</th>
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Match type</th>
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Response</th>
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <div id="customReplyStatus" class="status hidden" aria-live="polite"></div>
+
+        <div class="flex flex-wrap gap-3 mt-4">
+          <button id="saveCustomRepliesBtn" type="button" class="bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">Save custom replies</button>
+          <button id="clearAllRepliesBtn" type="button" class="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">Clear all</button>
+        </div>
+        <div id="customReplyStatus" class="mt-4 p-4 text-sm border-l-4 bg-gray-100 dark:bg-gray-700 rounded-lg hidden" aria-live="polite"></div>
       </div>
 
       <!-- Bulk Messaging Tab -->
-      <div class="tab-content" id="bulkMessages">
-        <div class="info-box">
+      <div class="tab-content p-4 sm:p-6 hidden animate-fade-in" id="bulkMessages">
+        <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 mb-6 rounded text-sm">
           Send the same message to multiple recipients. Numbers should include country codes (e.g., +1234567890).
         </div>
 
-        <div class="field-group">
-          <label for="bulkNumbers">Recipient phone numbers</label>
+        <div class="mb-6">
+          <label for="bulkNumbers" class="block text-sm font-medium mb-2">Recipient phone numbers</label>
           <textarea id="bulkNumbers" rows="6" placeholder="Enter phone numbers (one per line, comma, or space-separated):
 +15551234567
-+447700900123"></textarea>
++447700900123" 
+                    class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors resize-y"></textarea>
         </div>
 
-        <div class="field-group">
-          <label for="bulkCsv">Or import from CSV/TXT file</label>
-          <input type="file" id="bulkCsv" accept=".csv,.txt"/>
+        <div class="mb-6">
+          <label for="bulkCsv" class="block text-sm font-medium mb-2">Or import from CSV/TXT file</label>
+          <input type="file" id="bulkCsv" accept=".csv,.txt" 
+                 class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
         </div>
 
-        <div class="field-group">
-          <label for="bulkMessage">Message content *</label>
-          <textarea id="bulkMessage" rows="5" placeholder="Type your broadcast message here" required></textarea>
+        <div class="mb-6">
+          <label for="bulkMessage" class="block text-sm font-medium mb-2">Message content *</label>
+          <textarea id="bulkMessage" rows="5" placeholder="Type your broadcast message here" required 
+                    class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors resize-y"></textarea>
         </div>
 
-        <button id="sendBulkBtn" type="button">Send bulk message</button>
-        <div id="bulkStatus" class="status hidden" aria-live="polite"></div>
+        <button id="sendBulkBtn" type="button" class="bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">Send bulk message</button>
+        <div id="bulkStatus" class="mt-4 p-4 text-sm border-l-4 bg-gray-100 dark:bg-gray-700 rounded-lg hidden" aria-live="polite"></div>
       </div>
 
       <!-- Scheduling Tab -->
-      <div class="tab-content" id="scheduling">
-        <div class="info-box">
+      <div class="tab-content p-4 sm:p-6 hidden animate-fade-in" id="scheduling">
+        <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 mb-6 rounded text-sm">
           Schedule messages to be sent at a future time. Scheduled jobs persist in MongoDB and resume automatically after restarts.
         </div>
 
-        <div class="grid">
-          <div class="field-group">
-            <label for="scheduleDateTime">Scheduled send time *</label>
-            <input id="scheduleDateTime" type="datetime-local" required>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div>
+            <label for="scheduleDateTime" class="block text-sm font-medium mb-2">Scheduled send time *</label>
+            <input id="scheduleDateTime" type="datetime-local" required 
+                   class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
           </div>
         </div>
 
-        <div class="field-group">
-          <label for="scheduleNumbers">Recipient phone numbers *</label>
+        <div class="mb-6">
+          <label for="scheduleNumbers" class="block text-sm font-medium mb-2">Recipient phone numbers *</label>
           <textarea id="scheduleNumbers" rows="5" placeholder="Enter phone numbers (one per line):
 +15551234567
-+918888777766"></textarea>
++918888777766" 
+                    class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors resize-y"></textarea>
         </div>
 
-        <div class="field-group">
-          <label for="scheduleMessage">Message content *</label>
-          <textarea id="scheduleMessage" rows="5" placeholder="Message to be delivered at the scheduled time" required></textarea>
+        <div class="mb-6">
+          <label for="scheduleMessage" class="block text-sm font-medium mb-2">Message content *</label>
+          <textarea id="scheduleMessage" rows="5" placeholder="Message to be delivered at the scheduled time" required 
+                    class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors resize-y"></textarea>
         </div>
 
-        <button id="createScheduleBtn" type="button">Schedule message</button>
-        <div id="scheduleStatus" class="status hidden" aria-live="polite"></div>
+        <button id="createScheduleBtn" type="button" class="bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">Schedule message</button>
+        <div id="scheduleStatus" class="mt-4 p-4 text-sm border-l-4 bg-gray-100 dark:bg-gray-700 rounded-lg hidden" aria-live="polite"></div>
 
-        <h4 style="margin-top: 32px; margin-bottom: 12px;">Scheduled messages</h4>
-        <button id="refreshScheduleBtn" type="button" class="secondary small">Refresh list</button>
+        <h4 class="text-lg font-semibold mt-8 mb-3">Scheduled messages</h4>
+        <button id="refreshScheduleBtn" type="button" class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-medium py-2 px-4 rounded-lg text-sm transition-colors">Refresh list</button>
         
-        <table id="scheduleTable" class="hidden">
-          <thead>
-            <tr>
-              <th>Send at</th>
-              <th>Status</th>
-              <th>Recipients</th>
-              <th>Message preview</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div id="scheduleTable" class="overflow-x-auto mt-4 hidden">
+          <table class="w-full border-collapse text-sm border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden bg-white dark:bg-gray-800">
+            <thead>
+              <tr class="bg-gray-100 dark:bg-gray-700">
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Send at</th>
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Status</th>
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Recipients</th>
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Message preview</th>
+                <th class="border border-gray-300 dark:border-gray-600 p-3 text-left font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Utils Tab -->
-      <div class="tab-content" id="utils">
-        <div class="info-box">
+      <div class="tab-content p-4 sm:p-6 hidden animate-fade-in" id="utils">
+        <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-4 mb-6 rounded text-sm">
           Configure voice message support using Google Cloud Speech-to-Text and Text-to-Speech APIs. 
           When enabled, the bot will transcribe incoming voice messages and reply with voice messages.
         </div>
 
-        <div id="voiceApiStatusBox" class="info-box hidden" style="background: #f0fdf4; border-color: #16a34a;">
+        <div id="voiceApiStatusBox" class="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 p-4 mb-6 rounded text-sm hidden">
           <strong>✓ API Keys Status:</strong>
-          <ul style="margin: 8px 0 0 20px; padding: 0;">
+          <ul class="mt-2 ml-5 list-disc">
             <li id="geminiKeyStatus" class="hidden">Gemini API key stored in database</li>
             <li id="speechToTextKeyStatus" class="hidden">Speech-to-Text API key stored in database</li>
             <li id="textToSpeechKeyStatus" class="hidden">Text-to-Speech API key stored in database</li>
           </ul>
         </div>
 
-        <div class="field-group">
-          <div class="toggle-row">
-            <input type="checkbox" id="voiceReplyEnabled">
-            <label for="voiceReplyEnabled">Enable voice message replies</label>
+        <div class="mb-6">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="voiceReplyEnabled" class="w-4 h-4 text-primary-600 bg-gray-100 border-gray-300 rounded focus:ring-primary-500 dark:focus:ring-primary-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
+            <label for="voiceReplyEnabled" class="text-sm font-medium">Enable voice message replies</label>
           </div>
-          <small class="help-text">
+          <small class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
             When enabled, the bot will transcribe voice messages and respond with voice messages.
           </small>
         </div>
 
-        <div class="field-group">
-          <h4 style="margin-bottom: 12px;">Google Cloud API Keys</h4>
-          <div class="grid">
+        <div class="mb-6">
+          <h4 class="text-lg font-semibold mb-3">Google Cloud API Keys</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label for="speechToTextApiKey">Speech-to-Text API Key</label>
-              <input id="speechToTextApiKey" type="password" placeholder="Google Cloud Speech-to-Text API key" autocomplete="off"/>
-              <small id="speechToTextApiKeyHint" class="help-text hidden"></small>
-              <small class="help-text">
+              <label for="speechToTextApiKey" class="block text-sm font-medium mb-2">Speech-to-Text API Key</label>
+              <input id="speechToTextApiKey" type="password" placeholder="Google Cloud Speech-to-Text API key" autocomplete="off" 
+                     class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
+              <small id="speechToTextApiKeyHint" class="text-xs text-gray-500 dark:text-gray-400 mt-1 hidden"></small>
+              <small class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
                 Required for transcribing voice messages to text.
-                <a href="https://cloud.google.com/speech-to-text/docs/before-you-begin" target="_blank" rel="noopener">Get API Key</a>
+                <a href="https://cloud.google.com/speech-to-text/docs/before-you-begin" target="_blank" rel="noopener" class="text-primary-500 hover:underline">Get API Key</a>
               </small>
             </div>
             <div>
-              <label for="textToSpeechApiKey">Text-to-Speech API Key</label>
-              <input id="textToSpeechApiKey" type="password" placeholder="Google Cloud Text-to-Speech API key" autocomplete="off"/>
-              <small id="textToSpeechApiKeyHint" class="help-text hidden"></small>
-              <small class="help-text">
+              <label for="textToSpeechApiKey" class="block text-sm font-medium mb-2">Text-to-Speech API Key</label>
+              <input id="textToSpeechApiKey" type="password" placeholder="Google Cloud Text-to-Speech API key" autocomplete="off" 
+                     class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"/>
+              <small id="textToSpeechApiKeyHint" class="text-xs text-gray-500 dark:text-gray-400 mt-1 hidden"></small>
+              <small class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
                 Required for converting AI responses to voice messages.
-                <a href="https://cloud.google.com/text-to-speech/docs/before-you-begin" target="_blank" rel="noopener">Get API Key</a>
+                <a href="https://cloud.google.com/text-to-speech/docs/before-you-begin" target="_blank" rel="noopener" class="text-primary-500 hover:underline">Get API Key</a>
               </small>
             </div>
           </div>
         </div>
 
-        <div class="field-group">
-          <h4 style="margin-bottom: 12px;">Voice Settings</h4>
-          <div class="grid">
+        <div class="mb-6">
+          <h4 class="text-lg font-semibold mb-3">Voice Settings</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label for="voiceLanguage">Language Code</label>
-              <select id="voiceLanguage">
+              <label for="voiceLanguage" class="block text-sm font-medium mb-2">Language Code</label>
+              <select id="voiceLanguage" class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors">
                 <option value="en-US">English (US)</option>
                 <option value="en-GB">English (UK)</option>
                 <option value="es-ES">Spanish (Spain)</option>
@@ -755,31 +412,31 @@ support|exact|Contact support@example.com"></textarea>
                 <option value="nl-NL">Dutch</option>
                 <option value="sv-SE">Swedish</option>
               </select>
-              <small class="help-text">
+              <small class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
                 Language for speech recognition and synthesis.
               </small>
             </div>
             <div>
-              <label for="voiceGender">Voice Gender</label>
-              <select id="voiceGender">
+              <label for="voiceGender" class="block text-sm font-medium mb-2">Voice Gender</label>
+              <select id="voiceGender" class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors">
                 <option value="NEUTRAL">Neutral</option>
                 <option value="MALE">Male</option>
                 <option value="FEMALE">Female</option>
               </select>
-              <small class="help-text">
+              <small class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
                 Voice gender for Text-to-Speech output.
               </small>
             </div>
           </div>
         </div>
 
-        <div class="info-box" style="background: #fff3cd; border-color: #ffc107; color: #856404;">
+        <div class="bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-500 p-4 mb-6 rounded text-sm text-yellow-800 dark:text-yellow-200">
           <strong>⚠️ Important:</strong> Voice message features require Google Cloud APIs with billing enabled. 
           Make sure you have set up billing in your Google Cloud Console and enabled both Speech-to-Text and Text-to-Speech APIs.
         </div>
 
-        <button id="saveVoiceConfigBtn" type="button">Save voice configuration</button>
-        <div id="voiceConfigStatus" class="status hidden" aria-live="polite"></div>
+        <button id="saveVoiceConfigBtn" type="button" class="bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">Save voice configuration</button>
+        <div id="voiceConfigStatus" class="mt-4 p-4 text-sm border-l-4 bg-gray-100 dark:bg-gray-700 rounded-lg hidden" aria-live="polite"></div>
       </div>
     </div>
   </main>
