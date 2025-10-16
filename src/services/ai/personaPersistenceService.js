@@ -17,8 +17,8 @@ async function ensureIndexes() {
   initialized = true;
 }
 
-async function savePersonaMessage(sessionCode, message) {
-  if (!sessionCode || !message || typeof message !== "string") {
+async function savePersonaMessage(sessionCode, data) {
+  if (!sessionCode || !data) {
     return;
   }
 
@@ -26,15 +26,34 @@ async function savePersonaMessage(sessionCode, message) {
     await ensureIndexes();
     const collection = getCollection("personas");
 
-    const trimmedMessage = message.trim();
-    if (!trimmedMessage) return;
+    let document;
+    if (typeof data === "string") {
+      // Backward compatibility: if string, treat as outgoing message only
+      const trimmedMessage = data.trim();
+      if (!trimmedMessage) return;
+      document = {
+        sessionCode,
+        outgoing: trimmedMessage,
+        timestamp: new Date(),
+      };
+    } else if (typeof data === "object") {
+      // New format: conversation pair
+      const { incoming, outgoing } = data;
+      if (!outgoing || typeof outgoing !== "string") return;
+      const trimmedOutgoing = outgoing.trim();
+      if (!trimmedOutgoing) return;
+      document = {
+        sessionCode,
+        incoming: incoming && typeof incoming === "string" ? incoming.trim() : null,
+        outgoing: trimmedOutgoing,
+        timestamp: new Date(),
+      };
+    } else {
+      return;
+    }
 
     // Insert new message
-    await collection.insertOne({
-      sessionCode,
-      message: trimmedMessage,
-      timestamp: new Date(),
-    });
+    await collection.insertOne(document);
 
     // Efficient cleanup: delete messages beyond the 1000th most recent
     // This uses MongoDB's aggregation pipeline for better performance
@@ -71,7 +90,12 @@ async function loadPersonaMessages(sessionCode, limit = 1000) {
       .limit(limit)
       .toArray();
 
-    return docs.map(doc => doc.message).reverse(); // Return in chronological order
+    // Return in chronological order, supporting both old and new formats
+    return docs.map(doc => ({
+      incoming: doc.incoming || null,
+      outgoing: doc.outgoing || doc.message || "", // Fallback for old format
+      timestamp: doc.timestamp,
+    })).reverse();
   } catch (error) {
     logger.error({ err: error, sessionCode }, "Failed to load persona messages");
     return [];

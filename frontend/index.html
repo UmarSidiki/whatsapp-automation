@@ -474,7 +474,7 @@
     <div class="card hidden" id="controlPanel">
       <div class="control-bar">
         <div class="session-indicator" id="sessionIndicator" aria-live="polite">Not connected</div>
-        <div class="memory-indicator" id="memoryIndicator" aria-live="polite">Memory: Loading...</div>
+        <div class="memory-indicator" id="memoryIndicator" aria-live="polite">System: Loading...</div>
         <button id="logoutBtn" type="button" class="secondary small hidden">Logout</button>
       </div>
       <div class="tabs">
@@ -521,6 +521,27 @@
           <input id="contextWindow" type="number" min="10" max="100" value="50">
           <div class="info-box">
             The AI will remember the last N messages from each conversation to provide contextual responses.
+            <strong>Memory efficient:</strong> Chat history is stored in database and loaded on-demand, not kept in RAM.
+          </div>
+        </div>
+
+        <div class="field-group">
+          <h4 style="margin-bottom: 12px;">AI Training Data</h4>
+          <div class="info-box">
+            <strong>Enhanced AI Learning:</strong> The AI analyzes your conversation patterns including message length, formality, emoji usage, punctuation style, and messaging patterns (incremental vs complete responses).
+            <br><br>
+            <strong>Smart Features:</strong>
+            <ul style="margin: 8px 0 0 20px; padding: 0;">
+              <li>Detects if you send messages "bit by bit" and adapts responses accordingly</li>
+              <li>Learns your preferred message length and communication style</li>
+              <li>Analyzes conversation context for better replies</li>
+              <li>Weighted learning prioritizes recent messages</li>
+            </ul>
+          </div>
+          <button id="loadPersonaMessagesBtn" type="button" class="secondary small">Load Training Messages</button>
+          <div id="personaMessagesContainer" class="hidden" style="margin-top: 16px;">
+            <div id="personaMessagesList" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border); padding: 12px; background: var(--bg-primary); border-radius: var(--radius);"></div>
+            <div id="personaMessagesCount" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-muted);"></div>
           </div>
         </div>
 

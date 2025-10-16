@@ -83,6 +83,10 @@ function cacheElements() {
   elements.contextWindow = document.getElementById('contextWindow');
   elements.aiStatus = document.getElementById('aiStatus');
   elements.saveAiBtn = document.getElementById('saveAiBtn');
+  elements.loadPersonaMessagesBtn = document.getElementById('loadPersonaMessagesBtn');
+  elements.personaMessagesContainer = document.getElementById('personaMessagesContainer');
+  elements.personaMessagesList = document.getElementById('personaMessagesList');
+  elements.personaMessagesCount = document.getElementById('personaMessagesCount');
   
   // Custom Replies
   elements.customTrigger = document.getElementById('customTrigger');
@@ -196,15 +200,27 @@ async function updateMemoryIndicator() {
       throw new Error('Health check failed');
     }
     const data = await res.json();
-    const mem = data.memory;
-    if (mem) {
-      const heapPercent = mem.heapUsagePercent || 0;
-      const status = heapPercent > 80 ? '⚠️' : heapPercent > 60 ? '🟡' : '🟢';
-      elements.memoryIndicator.textContent = `${status} Heap: ${mem.heapUsed}MB (${heapPercent.toFixed(1)}%)`;
+    const system = data.system;
+    if (system) {
+      const memPercent = system.memory.usagePercent || 0;
+      const cpuPercent = system.cpu.usagePercent || 0;
+      const diskPercent = system.disk?.usagePercent || 0;
+
+      const memStatus = memPercent > 80 ? '⚠️' : memPercent > 60 ? '🟡' : '🟢';
+      const cpuStatus = cpuPercent > 80 ? '🔴' : cpuPercent > 60 ? '🟡' : '🟢';
+      const diskStatus = diskPercent > 90 ? '🔴' : diskPercent > 75 ? '🟡' : '🟢';
+
+      // For low-resource systems, show disk usage too
+      const isLowResource = system.memory?.totalGB < 2; // Less than 2GB RAM indicates low-resource
+      if (isLowResource && diskPercent > 0) {
+        elements.memoryIndicator.textContent = `${memStatus} RAM: ${memPercent.toFixed(1)}% ${cpuStatus} CPU: ${cpuPercent.toFixed(1)}% ${diskStatus} Disk: ${diskPercent}%`;
+      } else {
+        elements.memoryIndicator.textContent = `${memStatus} RAM: ${memPercent.toFixed(1)}% ${cpuStatus} CPU: ${cpuPercent.toFixed(1)}%`;
+      }
     }
   } catch (error) {
-    console.warn('Memory indicator update failed', error);
-    elements.memoryIndicator.textContent = 'Memory: N/A';
+    console.warn('System usage indicator update failed', error);
+    elements.memoryIndicator.textContent = 'System: N/A';
   }
 }
 
@@ -710,22 +726,22 @@ async function saveAiConfig() {
       setStatus(elements.voiceConfigStatus, 'Voice configuration saved successfully', 'success');
       const savedConfig = data.config || {};
       const persistedInfo = data.persisted || {};
-      
+
       // Update Gemini API key state
       const savedKey = typeof savedConfig.apiKey === 'string' ? savedConfig.apiKey : apiKey;
       elements.apiKey.value = savedKey;
       state.hasStoredApiKey = Boolean(savedKey || savedConfig.hasApiKey || persistedInfo.hasApiKey || reuseStoredApiKey);
-      
+
       // Update voice API keys state
       state.hasStoredSpeechToTextApiKey = Boolean(
-        savedConfig.speechToTextApiKey || 
+        savedConfig.speechToTextApiKey ||
         persistedInfo.hasSpeechToTextApiKey
       );
       state.hasStoredTextToSpeechApiKey = Boolean(
-        savedConfig.textToSpeechApiKey || 
+        savedConfig.textToSpeechApiKey ||
         persistedInfo.hasTextToSpeechApiKey
       );
-      
+
       await loadAiConfig();
     } else {
       setStatus(elements.aiStatus, data.error || 'Failed to save configuration', 'error');
@@ -734,6 +750,65 @@ async function saveAiConfig() {
   } catch (error) {
     console.error('Save AI config error', error);
     setStatus(elements.aiStatus, 'Unable to reach server', 'error');
+  }
+}
+
+async function loadPersonaMessages() {
+  if (!state.code) return;
+
+  try {
+    const res = await fetch(`/ai/${encodeURIComponent(state.code)}/persona`);
+    if (!res.ok) {
+      throw new Error('Failed to load persona messages');
+    }
+    const data = await res.json();
+    const messages = data.messages || [];
+
+    if (messages.length === 0) {
+      elements.personaMessagesList.innerHTML = '<p style="color: var(--text-muted); font-style: italic;">No training messages found. Messages will be saved as you chat with the AI.</p>';
+      elements.personaMessagesCount.textContent = '0 messages';
+    } else {
+      const messageItems = messages.map((msg, index) => {
+        const timestamp = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+        if (msg.incoming && msg.outgoing) {
+          // Conversation pair
+          return `
+            <div style="margin-bottom: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px; font-size: 0.9rem;">
+              <div style="margin-bottom: 8px; color: var(--text-muted); font-size: 0.8rem;">${timestamp}</div>
+              <div style="margin-bottom: 6px;">
+                <strong style="color: var(--primary);">Incoming:</strong> ${sanitizeHTML(msg.incoming)}
+              </div>
+              <div>
+                <strong style="color: var(--success);">Reply:</strong> ${sanitizeHTML(msg.outgoing)}
+              </div>
+            </div>
+          `;
+        } else if (msg.outgoing) {
+          // Standalone outgoing message
+          return `
+            <div style="margin-bottom: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 4px; font-size: 0.9rem;">
+              <div style="margin-bottom: 4px; color: var(--text-muted); font-size: 0.8rem;">${timestamp}</div>
+              <strong>${index + 1}.</strong> ${sanitizeHTML(msg.outgoing)}
+            </div>
+          `;
+        } else {
+          // Fallback for old format
+          return `
+            <div style="margin-bottom: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 4px; font-size: 0.9rem;">
+              <strong>${index + 1}.</strong> ${sanitizeHTML(typeof msg === 'string' ? msg : JSON.stringify(msg))}
+            </div>
+          `;
+        }
+      }).join('');
+      elements.personaMessagesList.innerHTML = messageItems;
+      elements.personaMessagesCount.textContent = `${messages.length} messages (showing latest 100)`;
+    }
+
+    showElement(elements.personaMessagesContainer, true);
+  } catch (error) {
+    console.error('Load persona messages error', error);
+    elements.personaMessagesList.innerHTML = '<p style="color: var(--danger); font-style: italic;">Failed to load training messages.</p>';
+    showElement(elements.personaMessagesContainer, true);
   }
 }
 
@@ -996,6 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // AI Config
   elements.saveAiBtn?.addEventListener('click', saveAiConfig);
+  elements.loadPersonaMessagesBtn?.addEventListener('click', loadPersonaMessages);
   
   // Custom Replies
   elements.addCustomReplyBtn?.addEventListener('click', addCustomReply);

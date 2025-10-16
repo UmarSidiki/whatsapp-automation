@@ -2,7 +2,7 @@
 
 const logger = require("../config/logger");
 const { shutdownAll } = require("../services/sessionService");
-const { shutdownPersistence } = require("../services/chatPersistenceService");
+const { shutdownPersistence } = require("../services/messaging/chatPersistenceService");
 const { closeMongo } = require("../services/mongoService");
 
 function createShutdownManager({ server, exitOnComplete = true } = {}) {

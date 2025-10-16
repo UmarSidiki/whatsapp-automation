@@ -9,6 +9,7 @@ const {
 } = require("../services/sessionService");
 const { DEFAULT_CONTEXT_WINDOW } = require("../constants");
 const { loadSessionConfig } = require("../services/sessionConfigService");
+const { loadPersonaMessages } = require("../services/ai/personaPersistenceService");
 const logger = require("../config/logger");
 
 async function configureAi(req, res) {
@@ -153,8 +154,24 @@ async function updateCustomReplies(req, res) {
   });
 }
 
+async function getPersonaMessages(req, res) {
+  const session = getSession(req.params.code);
+  if (!session) {
+    return res.status(404).json({ error: "No session found" });
+  }
+
+  try {
+    const messages = await loadPersonaMessages(req.params.code, 100); // Load last 100 messages
+    return res.json({ messages });
+  } catch (error) {
+    logger.error({ err: error, code: req.params.code }, "Failed to load persona messages");
+    return res.status(500).json({ error: "Failed to load persona messages" });
+  }
+}
+
 module.exports = {
   configureAi,
   getAiConfig: getAiConfigHandler,
   updateCustomReplies,
+  getPersonaMessages,
 };
