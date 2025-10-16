@@ -1,7 +1,7 @@
 "use strict";
 
 const speech = require("@google-cloud/speech");
-const logger = require("../config/logger");
+const logger = require("../../config/logger");
 
 /**
  * Transcribe audio buffer to text using Google Speech-to-Text API

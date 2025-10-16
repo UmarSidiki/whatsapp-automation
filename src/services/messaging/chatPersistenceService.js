@@ -1,7 +1,7 @@
 "use strict";
 
-const logger = require("../config/logger");
-const { connectMongo, getCollection } = require("./mongoService");
+const logger = require("../../config/logger");
+const { connectMongo, getCollection } = require("../mongoService");
 
 const MAX_MESSAGES_PER_CONTACT = 100;
 const FLUSH_INTERVAL_MS = 30_000;

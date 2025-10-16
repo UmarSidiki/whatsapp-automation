@@ -1,8 +1,8 @@
 "use strict";
 
-const env = require("../config/env");
-const logger = require("../config/logger");
-const { fetchFn, createTimeoutSignal } = require("../utils/http");
+const env = require("../../config/env");
+const logger = require("../../config/logger");
+const { fetchFn, createTimeoutSignal } = require("../../utils/http");
 
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_PROMPT_CHARS = 6000;

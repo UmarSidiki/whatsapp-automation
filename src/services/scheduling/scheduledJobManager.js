@@ -1,7 +1,7 @@
 "use strict";
 
-const logger = require("../config/logger");
-const { MIN_SCHEDULE_DELAY_MS, MAX_SCHEDULE_DELAY_MS, SCHEDULE_RETRY_DELAY_MS } = require("../constants");
+const logger = require("../../config/logger");
+const { MIN_SCHEDULE_DELAY_MS, MAX_SCHEDULE_DELAY_MS, SCHEDULE_RETRY_DELAY_MS } = require("../../constants");
 const { saveScheduledJob, updateScheduledJob, deleteScheduledJob, listScheduledJobs } = require("./schedulePersistenceService");
 
 /**

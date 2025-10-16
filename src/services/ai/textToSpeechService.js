@@ -1,7 +1,7 @@
 "use strict";
 
 const textToSpeech = require("@google-cloud/text-to-speech");
-const logger = require("../config/logger");
+const logger = require("../../config/logger");
 
 /**
  * Convert text to speech using Google Text-to-Speech API

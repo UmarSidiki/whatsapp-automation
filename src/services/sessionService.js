@@ -7,16 +7,16 @@ const {
   QR_REFRESH_INTERVAL_MS,
   DEFAULT_CONTEXT_WINDOW,
 } = require("../constants");
-const { flushSessionMessages } = require("./chatPersistenceService");
+const { flushSessionMessages } = require("./messaging/chatPersistenceService");
 const { loadSessionConfig, saveAiConfig } = require("./sessionConfigService");
 const {
   loadPersonaMessages,
-} = require("./personaPersistenceService");
+} = require("./ai/personaPersistenceService");
 const remoteAuthStore = require("./remoteAuthStore");
-const messageHandler = require("./messageHandler");
-const chatHistoryManager = require("./chatHistoryManager");
-const scheduledJobManager = require("./scheduledJobManager");
-const systemMonitor = require("./systemMonitor");
+const messageHandler = require("./messaging/messageHandler");
+const chatHistoryManager = require("./messaging/chatHistoryManager");
+const scheduledJobManager = require("./scheduling/scheduledJobManager");
+const systemMonitor = require("./monitoring/systemMonitor");
 
 const sessions = new Map();
 

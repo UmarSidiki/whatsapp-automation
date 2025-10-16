@@ -1,11 +1,11 @@
 "use strict";
 
-const logger = require("../config/logger");
-const { STOP_TIMEOUT_MS } = require("../constants");
-const { transcribeAudio } = require("./speechToTextService");
-const { synthesizeSpeech } = require("./textToSpeechService");
+const logger = require("../../config/logger");
+const { STOP_TIMEOUT_MS } = require("../../constants");
+const { transcribeAudio } = require("../ai/speechToTextService");
+const { synthesizeSpeech } = require("../ai/textToSpeechService");
 const { queueMessageForPersistence } = require("./chatPersistenceService");
-const { savePersonaMessage } = require("./personaPersistenceService");
+const { savePersonaMessage } = require("../ai/personaPersistenceService");
 const { splitMessageIntoParts } = require("../ai/aiReplyService");
 
 /**
@@ -351,12 +351,12 @@ async function processIncomingMessage(code, state, msg, sessions, chatHistoryMan
     const history = await chatHistoryManager.getHistoryForChat(current, chatId, contextWindow);
 
     // Generate AI reply using database-loaded history
-    const reply = await require("../ai/aiReplyService").generateAiReply(config, history, current.persona);
+    const reply = await require("../../ai/aiReplyService").generateAiReply(config, history, current.persona);
 
     if (reply) {
       // Analyze typing patterns for message splitting
-      const typingPatterns = require("../ai/aiReplyService").analyzeTypingPatterns ?
-        require("../ai/aiReplyService").analyzeTypingPatterns(current.persona) : {};
+      const typingPatterns = require("../../ai/aiReplyService").analyzeTypingPatterns ?
+        require("../../ai/aiReplyService").analyzeTypingPatterns(current.persona) : {};
 
       // Split message into parts if user has incremental messaging style
       const messageParts = splitMessageIntoParts(reply, typingPatterns);
@@ -496,15 +496,15 @@ function findCustomReply(customReplies, text) {
 function clampContextWindow(value) {
   const numeric = Number(value);
   if (Number.isNaN(numeric)) {
-    return require("../constants").DEFAULT_CONTEXT_WINDOW;
+    return require("../../constants").DEFAULT_CONTEXT_WINDOW;
   }
-  if (numeric < require("../constants").MIN_CONTEXT_WINDOW) {
-    return require("../constants").MIN_CONTEXT_WINDOW;
+  if (numeric < require("../../constants").MIN_CONTEXT_WINDOW) {
+    return require("../../constants").MIN_CONTEXT_WINDOW;
   }
-  if (numeric > require("../constants").MAX_CONTEXT_WINDOW) {
-    return require("../constants").MAX_CONTEXT_WINDOW;
+  if (numeric > require("../../constants").MAX_CONTEXT_WINDOW) {
+    return require("../../constants").MAX_CONTEXT_WINDOW;
   }
-  return Math.round(require("../constants").getEffectiveContextWindow(numeric));
+  return Math.round(require("../../constants").getEffectiveContextWindow(numeric));
 }
 
 function checkMemoryPressure() {

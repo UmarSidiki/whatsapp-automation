@@ -1,7 +1,7 @@
 "use strict";
 
-const logger = require("../config/logger");
-const { connectMongo, getCollection } = require("./mongoService");
+const logger = require("../../config/logger");
+const { connectMongo, getCollection } = require("../mongoService");
 
 let initialized = false;
 

@@ -1,7 +1,7 @@
 "use strict";
 
-const logger = require("../config/logger");
-const { MAX_MEMORY_MB } = require("../constants");
+const logger = require("../../config/logger");
+const { MAX_MEMORY_MB } = require("../../constants");
 
 let memoryMonitorInterval = null;
 

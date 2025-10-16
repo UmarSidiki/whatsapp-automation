@@ -1,7 +1,7 @@
 "use strict";
 
-const logger = require("../config/logger");
-const { CHAT_HISTORY_PRUNE_INTERVAL_MS } = require("../constants");
+const logger = require("../../config/logger");
+const { CHAT_HISTORY_PRUNE_INTERVAL_MS } = require("../../constants");
 const { loadMessages } = require("./chatPersistenceService");
 
 let chatHistoryPruneInterval = null;
@@ -21,7 +21,7 @@ function appendHistoryEntry() {
 async function getHistoryForChat(session, chatId, contextWindow) {
   try {
     const limit = clampContextWindow(
-      contextWindow ?? session.aiConfig?.contextWindow ?? require("../constants").DEFAULT_CONTEXT_WINDOW
+      contextWindow ?? session.aiConfig?.contextWindow ?? require("../../constants").DEFAULT_CONTEXT_WINDOW
     );
 
     // Load from database
@@ -79,15 +79,15 @@ function stopHistoryPruneInterval() {
 function clampContextWindow(value) {
   const numeric = Number(value);
   if (Number.isNaN(numeric)) {
-    return require("../constants").getEffectiveContextWindow(require("../constants").DEFAULT_CONTEXT_WINDOW);
+    return require("../../constants").getEffectiveContextWindow(require("../../constants").DEFAULT_CONTEXT_WINDOW);
   }
-  if (numeric < require("../constants").MIN_CONTEXT_WINDOW) {
-    return require("../constants").MIN_CONTEXT_WINDOW;
+  if (numeric < require("../../constants").MIN_CONTEXT_WINDOW) {
+    return require("../../constants").MIN_CONTEXT_WINDOW;
   }
-  if (numeric > require("../constants").MAX_CONTEXT_WINDOW) {
-    return require("../constants").MAX_CONTEXT_WINDOW;
+  if (numeric > require("../../constants").MAX_CONTEXT_WINDOW) {
+    return require("../../constants").MAX_CONTEXT_WINDOW;
   }
-  return Math.round(require("../constants").getEffectiveContextWindow(numeric));
+  return Math.round(require("../../constants").getEffectiveContextWindow(numeric));
 }
 
 module.exports = {

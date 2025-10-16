@@ -1,6 +1,6 @@
 "use strict";
 
-const { connectMongo, getCollection } = require("./mongoService");
+const { connectMongo, getCollection } = require("../mongoService");
 
 let initialized = false;
 
