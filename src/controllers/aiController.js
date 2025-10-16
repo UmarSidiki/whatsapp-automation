@@ -160,8 +160,11 @@ async function getPersonaMessages(req, res) {
     return res.status(404).json({ error: "No session found" });
   }
 
+  const config = fetchAiConfig(req.params.code);
+  const limit = config?.contextWindow || DEFAULT_CONTEXT_WINDOW;
+
   try {
-    const messages = await loadPersonaMessages(req.params.code, 100); // Load last 100 messages
+    const messages = await loadPersonaMessages(req.params.code, limit);
     return res.json({ messages });
   } catch (error) {
     logger.error({ err: error, code: req.params.code }, "Failed to load persona messages");

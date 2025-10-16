@@ -132,13 +132,13 @@ function analyzeConversationContext(augmentedHistory) {
 /**
  * Enhance system prompt with persona for style learning
  */
-function enhanceSystemPromptWithPersona(basePrompt, persona, augmentedHistory = []) {
+function enhanceSystemPromptWithPersona(basePrompt, persona, augmentedHistory = [], contextWindow = 100) {
   if (!Array.isArray(persona) || !persona.length) {
     return basePrompt;
   }
 
-  // Take up to 100 recent persona entries for enhanced style learning
-  const recentPersona = persona.slice(-100);
+  // Take up to contextWindow recent persona entries for enhanced style learning
+  const recentPersona = persona.slice(-contextWindow);
   const conversationExamples = [];
   const styleExamples = [];
 
@@ -250,7 +250,8 @@ async function generateAiReply(config, augmentedHistory, persona) {
   const enhancedPrompt = enhanceSystemPromptWithPersona(
     config.systemPrompt,
     persona,
-    augmentedHistory
+    augmentedHistory,
+    config.contextWindow
   );
 
   // Generate reply using combined history

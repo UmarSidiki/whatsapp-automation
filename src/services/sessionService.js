@@ -24,7 +24,7 @@ let whatsappDeps = null;
 
 // Constants moved to appropriate modules
 const MIN_CONTEXT_WINDOW = 5;
-const MAX_CONTEXT_WINDOW = 100;
+const MAX_CONTEXT_WINDOW = 1000;
 
 function getQrCodeLib() {
   if (!qrCodeLib) {
@@ -665,8 +665,8 @@ async function hydrateAiConfig(code, session) {
     baseConfig.customReplies = sanitizeCustomReplies(storedReplies);
 
     session.aiConfig = baseConfig;
-    // Load recent persona messages from database (load 300 for better style learning, full 1000 available if needed)
-    session.persona = await loadPersonaMessages(code, 300);
+    // Load recent persona messages from database based on contextWindow
+    session.persona = await loadPersonaMessages(code, baseConfig.contextWindow);
   } catch (error) {
     logger.error({ err: error, code }, "Failed to hydrate AI configuration");
     if (!session.aiConfig) {

@@ -6,7 +6,7 @@ module.exports = {
   QR_REFRESH_INTERVAL_MS: 30 * 1000,
   DEFAULT_CONTEXT_WINDOW: 50,
   MIN_CONTEXT_WINDOW: 10,
-  MAX_CONTEXT_WINDOW: 100,
+  MAX_CONTEXT_WINDOW: 1000,
   MIN_SCHEDULE_DELAY_MS: 10 * 1000,
   MAX_SCHEDULE_DELAY_MS: 7 * 24 * 60 * 60 * 1000,
   // Memory limits for low-resource systems (1GB RAM + zram + 2GB swap)
