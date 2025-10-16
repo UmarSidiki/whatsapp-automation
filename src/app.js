@@ -24,7 +24,18 @@ function createApp() {
   if (env.enableRequestLogger) {
     app.use(requestLogger);
   }
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          "script-src": ["'self'", "https://cdn.tailwindcss.com"],
+          "style-src": ["'self'", "'unsafe-inline'"], // Needed for Tailwind's dynamic styles
+        },
+      },
+    })
+  );
+
   if (env.enableCompression) {
     app.use(compression());
   }
