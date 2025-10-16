@@ -80,6 +80,11 @@ function queueMessageForPersistence({
     return;
   }
 
+  // Do not store group chat messages for AI enhancement
+  if (typeof contactId === "string" && contactId.includes("@g.us")) {
+    return;
+  }
+
   // Check global pending messages limit
   let totalPending = 0;
   for (const buffer of pendingMessages.values()) {

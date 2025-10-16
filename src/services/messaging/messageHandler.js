@@ -437,6 +437,10 @@ async function processOutgoingMessage(code, state, msg, sessions) {
       // Command processed; no further action
       return;
     }
+    // Determine chat ID
+    const chatId = msg.to;
+    // Do not build persona from group chat messages
+    if (typeof chatId === "string" && chatId.includes("@g.us")) return;
     // Capture owner outgoing messages to build persona
     if (msg.body && typeof msg.body === "string") {
       const trimmed = msg.body.trim();

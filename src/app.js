@@ -30,7 +30,7 @@ function createApp() {
         useDefaults: true,
         directives: {
           "script-src": ["'self'", "https://cdn.tailwindcss.com"],
-          "style-src": ["'self'", "'unsafe-inline'"], // Needed for Tailwind's dynamic styles
+          "style-src": ["'self'", "'unsafe-inline'"],
         },
       },
     })
