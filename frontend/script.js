@@ -654,8 +654,8 @@ async function saveAiConfig() {
     return;
   }
 
-  if (contextWindow < 10 || contextWindow > 100) {
-    setStatus(elements.aiStatus, 'Context window must be between 10 and 100', 'error');
+  if (contextWindow < 10 || contextWindow > 1000) {
+    setStatus(elements.aiStatus, 'Context window must be between 10 and 1000', 'error');
     return;
   }
 
