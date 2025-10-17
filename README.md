@@ -7,7 +7,7 @@ Production-ready WhatsApp auto-responder powered by Google's Gemini API.
 - Modular service architecture under `src/` (config, middleware, controllers, routes, services, utils)
 - Secure multi-session management gated by rotating auth codes
 - Configurable Gemini model, API key, and optional system prompt per session
-- Toggleable auto replies with per-session context windows (10-100 messages retained)
+- Toggleable auto replies with per-session context windows (10-1000 messages retained)
 - Conversation memory for the last N user/assistant messages to improve AI relevance
 - **Voice message support with Google Speech-to-Text and Text-to-Speech APIs**
 - Custom keyword, prefix, or regex replies that trigger before AI hand-off
