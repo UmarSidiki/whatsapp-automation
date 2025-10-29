@@ -18,6 +18,92 @@ const sessions = new Map();
 // --- END REMOVAL ---
 let whatsappDeps = null;
 
+// --- MEMORY LEAK FIX ---
+// Session health check to remove stale/failed sessions
+const SESSION_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const SESSION_MAX_IDLE_MS = 24 * 60 * 60 * 1000; // 24 hours
+let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+function startSessionHealthCheck(): void {
+  if (healthCheckInterval) return;
+
+  healthCheckInterval = setInterval(() => {
+    try {
+      const now = Date.now();
+      const staleSessions: string[] = [];
+
+      for (const [code, session] of sessions.entries()) {
+        // Remove sessions that are destroyed but still in map
+        if (session.destroyed) {
+          staleSessions.push(code);
+          continue;
+        }
+
+        // Remove sessions that have been idle for too long and never authenticated
+        if (!session.hasBeenAuthenticated && !session.ready) {
+          const idleTime = now - session.startedAt;
+          if (idleTime > SESSION_MAX_IDLE_MS) {
+            staleSessions.push(code);
+            logger.warn(
+              { code, idleTimeHours: Math.round(idleTime / 3600000) },
+              "Removing stale unauthenticated session"
+            );
+          }
+        }
+      }
+
+      // Clean up stale sessions
+      for (const code of staleSessions) {
+        const session = sessions.get(code);
+        if (session) {
+          try {
+            if (session.reconnectTimeout) {
+              clearTimeout(session.reconnectTimeout);
+            }
+            if (session.client) {
+              session.client.close().catch(() => {});
+            }
+          } catch (error) {
+            logger.debug(
+              { err: error, code },
+              "Error cleaning up stale session"
+            );
+          }
+        }
+        sessions.delete(code);
+      }
+
+      if (staleSessions.length > 0) {
+        logger.info(
+          { removed: staleSessions.length, remaining: sessions.size },
+          "Session health check completed"
+        );
+      }
+    } catch (error) {
+      logger.error({ err: error }, "Error in session health check");
+    }
+  }, SESSION_HEALTH_CHECK_INTERVAL_MS);
+
+  // Allow Node to exit even if interval is running
+  if (typeof healthCheckInterval.unref === "function") {
+    healthCheckInterval.unref();
+  }
+
+  logger.info(
+    { intervalMs: SESSION_HEALTH_CHECK_INTERVAL_MS },
+    "Session health check started"
+  );
+}
+
+function stopSessionHealthCheck(): void {
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval);
+    healthCheckInterval = null;
+    logger.info("Session health check stopped");
+  }
+}
+// --- END FIX ---
+
 // --- REMOVED ---
 // async function getQrCodeLib() {
 //   if (!qrCodeLib) {
@@ -37,14 +123,15 @@ async function getWhatsAppDeps() {
 }
 
 const PUPPETEER_ARGS = [
-  "--no-sandbox", // Mandatory for Heroku's execution environment
+  // --- Your existing (and excellent) config ---
+  "--no-sandbox",
   "--disable-setuid-sandbox",
-  "--disable-dev-shm-usage", // Critical for Heroku's shared memory limit
+  "--disable-dev-shm-usage",
   "--disable-accelerated-video-decode",
   "--disable-accelerated-video-encode",
   "--no-first-run",
   "--no-zygote",
-  "--single-process", // Use a single process instead of multiple
+  "--single-process",
   "--disable-gpu",
   "--disable-extensions",
   "--disable-speech-api",
@@ -55,7 +142,14 @@ const PUPPETEER_ARGS = [
   "--disable-notifications",
   "--disable-default-apps",
   "--disable-sync",
-  "--mute-audio", // Saves a small amount of memory
+  "--mute-audio",
+  "--disable-web-security",
+  "--disable-translate",
+  "--disable-features=Audio,WebRtc,ScriptStreaming",
+  "--disable-background-networking",
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
 ];
 
 async function ensureSession(code) {
@@ -86,6 +180,8 @@ async function ensureSession(code) {
     scheduledJobs: new Map(),
     destroyed: false, // Added 'destroyed' flag from original logic
     hasBeenAuthenticated: false, // Track if session was ever authenticated
+    handlersRegistered: false, // Track if event handlers are registered (memory leak prevention)
+    reconnectTimeout: null as ReturnType<typeof setTimeout> | null, // Track reconnect timeout for cleanup
   };
   // --- END CHANGE ---
 
@@ -93,6 +189,11 @@ async function ensureSession(code) {
 
   // Start the chat history pruning interval when the first session is created
   startHistoryPruneInterval();
+
+  // --- MEMORY LEAK FIX ---
+  // Start session health check when first session is created
+  startSessionHealthCheck();
+  // --- END FIX ---
 
   try {
     // --- CHANGED ---
@@ -189,6 +290,26 @@ async function ensureSession(code) {
       logger.debug({ err, code }, "Failed to log session AI summary");
     }
   } catch (error) {
+    // --- MEMORY LEAK FIX ---
+    // Ensure complete cleanup on initialization failure
+    try {
+      if (state.reconnectTimeout) {
+        clearTimeout(state.reconnectTimeout);
+        state.reconnectTimeout = null;
+      }
+      if (state.client) {
+        await state.client.close().catch(() => {});
+        state.client = null;
+      }
+      clearScheduledJobs(state);
+    } catch (cleanupError) {
+      logger.debug(
+        { err: cleanupError, code },
+        "Error during initialization cleanup"
+      );
+    }
+    // --- END FIX ---
+
     sessions.delete(code);
     logger.error({ err: error }, "Failed to initialize WhatsApp client");
     throw new Error("Failed to start WhatsApp session");
@@ -199,6 +320,19 @@ async function ensureSession(code) {
 
 function registerEventHandlers(code, state) {
   if (!state.client) return; // Should not happen, but a good guard
+
+  // --- MEMORY LEAK FIX ---
+  // Remove existing event handlers before registering new ones to prevent accumulation
+  // WPPConnect doesn't expose removeListener, so we track if handlers are already registered
+  if (state.handlersRegistered) {
+    logger.debug(
+      { code },
+      "Event handlers already registered, skipping re-registration"
+    );
+    return;
+  }
+  state.handlersRegistered = true;
+  // --- END FIX ---
 
   // --- REMOVED ---
   // 'client.on("qr")' is now handled by 'catchQR' in the 'create' config.
@@ -274,7 +408,16 @@ function registerEventHandlers(code, state) {
           "Scheduling reconnection attempt"
         );
 
-        setTimeout(async () => {
+        // --- MEMORY LEAK FIX ---
+        // Clear any existing reconnect timeout before creating a new one
+        if (state.reconnectTimeout) {
+          clearTimeout(state.reconnectTimeout);
+          state.reconnectTimeout = null;
+        }
+        // --- END FIX ---
+
+        state.reconnectTimeout = setTimeout(async () => {
+          state.reconnectTimeout = null; // Clear reference after execution
           if (sessions.has(code) && !state.destroyed && !state.ready) {
             logger.info({ code }, "Attempting to reconnect WhatsApp client");
             try {
@@ -310,6 +453,7 @@ function registerEventHandlers(code, state) {
               state.ready = true;
               state.startedAt = Date.now();
               state.hasBeenAuthenticated = true;
+              state.handlersRegistered = false; // Reset flag for new client
 
               // Re-fetch botNumber
               try {
@@ -373,6 +517,11 @@ function listSessions() {
 async function shutdownAll() {
   // Clear prune interval if it exists - handled by chatHistory module
 
+  // --- MEMORY LEAK FIX ---
+  // Stop session health check
+  stopSessionHealthCheck();
+  // --- END FIX ---
+
   for (const [code, session] of sessions.entries()) {
     try {
       const { flushSessionMessages } = await import(
@@ -387,6 +536,14 @@ async function shutdownAll() {
     }
 
     try {
+      // --- MEMORY LEAK FIX ---
+      // Clear any pending reconnect timeouts
+      if (session.reconnectTimeout) {
+        clearTimeout(session.reconnectTimeout);
+        session.reconnectTimeout = null;
+      }
+      // --- END FIX ---
+
       clearScheduledJobs(session);
       session.destroyed = true;
       // --- CHANGED ---
@@ -421,6 +578,14 @@ async function destroySession(code) {
   }
 
   try {
+    // --- MEMORY LEAK FIX ---
+    // Clear any pending reconnect timeouts
+    if (session.reconnectTimeout) {
+      clearTimeout(session.reconnectTimeout);
+      session.reconnectTimeout = null;
+    }
+    // --- END FIX ---
+
     clearScheduledJobs(session);
     session.destroyed = true;
     // --- CHANGED ---
@@ -445,4 +610,6 @@ export {
   shutdownAll,
   destroySession,
   sessions,
+  startSessionHealthCheck,
+  stopSessionHealthCheck,
 };

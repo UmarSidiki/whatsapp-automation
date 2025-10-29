@@ -5,6 +5,7 @@ import type { Collection, Document } from "mongodb";
 export const MAX_MESSAGES_PER_CONTACT = 1000;
 const FLUSH_INTERVAL_MS = 30_000;
 const MAX_BUFFER_SIZE = MAX_MESSAGES_PER_CONTACT * 2;
+const MAX_TOTAL_BUFFER_SIZE = 10000; // Global limit across all contacts to prevent unbounded growth
 
 let initialized = false;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -121,6 +122,33 @@ export function queueMessageForPersistence({
   const safeMessage = sanitizeMessage(message);
   if (!safeMessage) return;
 
+  // --- MEMORY LEAK FIX ---
+  // Check total buffer size across all contacts before adding
+  let totalBufferSize = 0;
+  for (const buf of pendingMessages.values()) {
+    totalBufferSize += buf.length;
+  }
+
+  if (totalBufferSize >= MAX_TOTAL_BUFFER_SIZE) {
+    logger.warn(
+      { totalBufferSize, maxSize: MAX_TOTAL_BUFFER_SIZE },
+      "Global message buffer limit reached, forcing immediate flush"
+    );
+    // Force immediate flush to prevent memory overflow
+    flushQueuedMessages().catch((error) => {
+      logger.error({ err: error }, "Emergency flush failed, dropping oldest messages");
+      // Emergency: drop oldest messages from largest buffers
+      const sorted = Array.from(pendingMessages.entries())
+        .sort((a, b) => b[1].length - a[1].length);
+      for (let i = 0; i < Math.min(3, sorted.length); i++) {
+        const [key, buf] = sorted[i];
+        buf.splice(0, Math.floor(buf.length / 2));
+        logger.warn({ key, remaining: buf.length }, "Dropped messages to prevent memory overflow");
+      }
+    });
+  }
+  // --- END FIX ---
+
   const key = getBufferKey(sessionCode, contactId);
   const buffer: MessageEntry[] = pendingMessages.get(key) ?? [];
 
@@ -133,7 +161,7 @@ export function queueMessageForPersistence({
     isAiGenerated,
   });
 
-  // Keep memory bounded
+  // Keep memory bounded per contact
   if (buffer.length > MAX_BUFFER_SIZE) {
     buffer.splice(0, buffer.length - MAX_BUFFER_SIZE);
   }
@@ -185,11 +213,28 @@ export async function flushSessionMessages(sessionCode: string): Promise<void> {
 
 /** Graceful shutdown */
 export async function shutdownPersistence(): Promise<void> {
+  // --- MEMORY LEAK FIX ---
+  // Clear timer first to prevent new flushes during shutdown
   if (flushTimer) {
     clearInterval(flushTimer);
     flushTimer = null;
   }
+
+  // Wait for any in-flight flush to complete
+  if (flushPromise) {
+    try {
+      await flushPromise;
+    } catch (error) {
+      logger.error({ err: error }, "In-flight flush failed during shutdown");
+    }
+  }
+
+  // Final flush of remaining messages
   await flushQueuedMessages();
+
+  // Clear the buffer to release memory
+  pendingMessages.clear();
+  // --- END FIX ---
 }
 
 /* -------------------------------------------------------------------------- */

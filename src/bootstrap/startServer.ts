@@ -48,6 +48,13 @@ async function startServer() {
     logger.info({ port: env.PORT }, "Server running");
   });
 
+  // --- MEMORY LEAK FIX ---
+  // Set connection timeout to prevent hanging connections
+  server.timeout = 120000; // 2 minutes
+  server.keepAliveTimeout = 65000; // 65 seconds (should be > load balancer timeout)
+  server.headersTimeout = 66000; // Slightly more than keepAliveTimeout
+  // --- END FIX ---
+
   // Restore sessions AFTER server is running so UI is accessible
   // This allows users to see QR codes while sessions are being restored
   restoreSessions().catch((err) => {
