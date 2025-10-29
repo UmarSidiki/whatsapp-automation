@@ -113,10 +113,11 @@ export function queueMessageForPersistence({
   if (!sessionCode || !contactId || !direction) return;
   if (isGroup || isBroadcast || hasMedia) return;
   
-  // Additional safety: skip status/broadcast messages by chatId pattern
+  // Additional safety: skip status/broadcast/newsletter messages by chatId pattern
   if (typeof contactId === "string") {
     if (contactId.includes("@broadcast")) return;
     if (contactId.includes("status@broadcast")) return;
+    if (contactId.includes("@newsletter")) return;
   }
 
   const safeMessage = sanitizeMessage(message);

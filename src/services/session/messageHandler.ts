@@ -232,7 +232,7 @@ function registerMessageHandlers(code: string, state: any) {
     // Determine chatId: for outgoing (owner) use msg.to, for incoming use msg.from
     const chatId = msg.fromMe ? msg.to : msg.from;
 
-    // Skip non-personal chats (groups, status/broadcast)
+    // Skip non-personal chats (groups, status/broadcast, newsletters)
     if (typeof chatId === "string") {
       if (chatId.includes("@g.us")) {
         logger.debug({ code, chatId }, "Skipping group message");
@@ -245,6 +245,13 @@ function registerMessageHandlers(code: string, state: any) {
         logger.debug(
           { code, chatId, msgType: msg.type },
           "Skipping status/broadcast message"
+        );
+        return;
+      }
+      if (chatId.includes("@newsletter")) {
+        logger.debug(
+          { code, chatId, msgType: msg.type },
+          "Skipping newsletter message"
         );
         return;
       }
@@ -275,9 +282,10 @@ function registerMessageHandlers(code: string, state: any) {
 
     // If the message is from the bot (outgoing), persist it for persona learning but don't process
     if (msg.fromMe) {
-      // Persist your manual messages for persona learning
+      // Persist your manual messages for persona learning (exclude media)
       const text = msg.body?.trim();
-      if (text && typeof text === "string") {
+      const hasMedia = msg.hasMedia || msg.isMedia || isVoiceMessage;
+      if (text && typeof text === "string" && !hasMedia) {
         appendHistoryEntry(current, chatId, { role: "assistant", text });
         persistChatMessage(code, chatId, "outgoing", text, false); // false = not AI-generated
       }
@@ -500,8 +508,14 @@ function registerMessageHandlers(code: string, state: any) {
       if (!text) return;
     }
 
+    // Persist incoming message (exclude media - voice messages are already transcribed to text)
+    const hasMedia = msg.hasMedia || msg.isMedia;
+    const shouldPersist = !hasMedia || isVoiceMessage; // Voice messages are OK since we have transcribed text
+    
     appendHistoryEntry(current, chatId, { role: "user", text });
-    persistChatMessage(code, chatId, "incoming", text, false); // false = not AI-generated
+    if (shouldPersist) {
+      persistChatMessage(code, chatId, "incoming", text, false); // false = not AI-generated
+    }
 
     if (!config) return;
 
@@ -523,6 +537,7 @@ function registerMessageHandlers(code: string, state: any) {
           role: "assistant",
           text: customReply,
         });
+        // Custom replies are text-only, safe to persist
         persistChatMessage(code, chatId, "outgoing", customReply, false); // Custom reply = not AI
         await markChatUnread(msg);
       } catch (error) {
@@ -653,6 +668,7 @@ function registerMessageHandlers(code: string, state: any) {
         );
 
         appendHistoryEntry(current, chatId, { role: "assistant", text: reply });
+        // AI replies are text-only, safe to persist
         persistChatMessage(code, chatId, "outgoing", reply, true); // AI-generated = true
         await markChatUnread(msg);
       } else {
