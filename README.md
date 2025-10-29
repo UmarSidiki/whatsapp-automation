@@ -1,6 +1,24 @@
 # WhatsApp Automation
 
-Production-ready WhatsApp auto-responder powered by Google's Gemini API.
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+
+Production-ready WhatsApp auto-responder powered by Google's Gemini API with AI persona learning and voice message support.
+
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Getting Started](#getting-started)
+- [Project Layout](#project-layout)
+- [API Endpoints](#api-endpoints)
+- [Voice Message Configuration](#voice-message-configuration)
+- [Deployment Notes](#deployment-notes)
+- [Frontend Usage](#frontend-usage)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -31,58 +49,66 @@ Production-ready WhatsApp auto-responder powered by Google's Gemini API.
 
 ## Requirements
 
-- Node.js 18.17 or newer (for native `fetch` and `AbortSignal.timeout` support)
+- Node.js 20.x or newer (for native `fetch` and `AbortSignal.timeout` support)
 - Google Gemini API key (for AI text responses)
 - **Google Cloud Speech-to-Text API key** (optional, for voice message transcription)
 - **Google Cloud Text-to-Speech API key** (optional, for voice message replies)
-- Chrome-compatible environment for Puppeteer (required by `whatsapp-web.js`)
+- Chrome-compatible environment for Puppeteer (required by `@wppconnect-team/wppconnect`)
 - MongoDB instance (for session persistence, AI config, and scheduled jobs)
 
 ## Getting Started
 
 1. Install dependencies:
-   ```powershell
-   npm install
-   ```
+    ```bash
+    npm install
+    # or
+    bun install
+    ```
 2. Copy `.env.example` to `.env` and adjust values. At minimum set:
-   - `AUTH_CODES` (comma-separated) for login access
-   - `NODE_ENV`, `PORT`, `LOG_LEVEL` as needed
-   - Optional resource tuning flags:
-     - `ENABLE_COMPRESSION` (`true`/`false`, default auto-enables in production)
-     - `ENABLE_REQUEST_LOGGER` (`true`/`false`, default off in production)
-     - `AUTO_RESTORE_SESSIONS` (`true`/`false`, default `true`)
-     - `SESSION_RESTORE_THROTTLE_MS` (delay between session restores, default `1000`)
+    - `AUTH_CODES` (comma-separated) for login access, or configure in `codes/codes.json`
+    - `MONGO_URI` for MongoDB connection
+    - `NODE_ENV`, `PORT`, `LOG_LEVEL` as needed
+    - Optional resource tuning flags:
+      - `ENABLE_COMPRESSION` (`true`/`false`, default auto-enables in production)
+      - `ENABLE_REQUEST_LOGGER` (`true`/`false`, default off in production)
+      - `AUTO_RESTORE_SESSIONS` (`true`/`false`, default `true`)
+      - `SESSION_RESTORE_THROTTLE_MS` (delay between session restores, default `1000`)
 3. Run lint checks (optional but recommended before commits):
-   ```powershell
-   npm run lint
-   ```
+    ```bash
+    npm run lint
+    ```
 4. Run in development (includes auto-reload and pretty logs):
-   ```powershell
-   npm run dev
-   ```
+    ```bash
+    npm run dev
+    # or for nodemon
+    npm run devn
+    ```
 5. Launch the production server:
-   ```powershell
-   npm run start
-   ```
+    ```bash
+    npm run start
+    ```
 
-The frontend is served from `frontend/` and provides a basic control panel for QR login and AI configuration.
+The frontend is served from `frontend/` and provides a comprehensive control panel for QR login, AI configuration, bulk messaging, scheduling, voice settings, and persona management.
 
 ### Project layout
 
 ```
 src/
-   bootstrap/         # Startup, shutdown, and session restoration helpers
-  app.js              # Express app factory
-  index.js            # Process bootstrap & graceful shutdown
-  config/             # Environment + logger setup
-  controllers/        # Route handlers (auth, AI config, health, QR)
-  middleware/         # Logging, errors, rate limiting
-  routes/             # Route registration modules
-  services/           # WhatsApp session + Gemini integrations
-  utils/              # Shared helpers (HTTP fetch wrapper)
-  validation/         # Zod schemas
-frontend/             # Static control panel
-codes/                # Optional codes.json store
+├── app.ts              # Express app factory
+├── index.ts            # Process bootstrap & graceful shutdown
+├── bootstrap/          # Startup, shutdown, and session restoration helpers
+├── config/             # Environment + logger setup
+├── constants/          # Application constants
+├── controllers/        # Route handlers (auth, AI config, health, QR, messages, persona)
+├── middleware/         # Logging, errors, rate limiting, request logger
+├── routes/             # Route registration modules
+├── services/           # WhatsApp session, AI, database, and persistence services
+├── types/              # TypeScript type definitions
+├── utils/              # Shared helpers (HTTP fetch wrapper)
+├── validation/         # Zod schemas for request validation
+frontend/               # Static control panel (HTML, JS, CSS)
+codes/                  # Authentication codes store (codes.json)
+server.js               # CommonJS entry point
 ```
 
 ## Deployment Notes
@@ -119,14 +145,21 @@ codes/                # Optional codes.json store
    - **Note:** `!stop` disables **both text and voice** auto-replies. The bot will not process any messages (including voice transcription) from stopped users to save API costs.
    - Users must send `!start` as a **text message** to re-enable auto-replies.
 
-### API additions
+### API Endpoints
 
+#### AI Configuration
 - `GET /ai/:code` – Retrieve the sanitized AI configuration for a session (includes voice settings).
-- `POST /ai/:code` – Update API key, model, auto-reply toggle, context window, custom replies, and voice settings.
+- `POST /ai/:code` – Update API key, model, auto-reply toggle, context window, and voice settings.
+- `POST /ai/:code/replies` – Update custom keyword replies for a session.
+
+#### Messaging
 - `POST /messages/:code/bulk` – Send an immediate broadcast to multiple numbers.
+- `POST /messages/:code/voice` – Send a voice message (used internally for AI voice replies).
 - `GET /messages/:code/schedule` – List upcoming scheduled jobs and historical results.
 - `POST /messages/:code/schedule` – Schedule a delayed broadcast.
 - `DELETE /messages/:code/schedule/:jobId` – Cancel a pending scheduled job (`?mode=remove` to delete the record entirely).
+
+#### Persona Management
 - `GET /persona/:code/contacts` – List all contacts with persona data.
 - `GET /persona/:code/contact/:contactId` – Get persona messages for a specific contact.
 - `GET /persona/:code/universal` – Get universal persona messages.
@@ -134,6 +167,11 @@ codes/                # Optional codes.json store
 - `PUT /persona/:code/universal/message/:messageIndex` – Update a message in universal persona.
 - `DELETE /persona/:code/contact/:contactId/message/:messageIndex` – Delete a message from contact persona.
 - `DELETE /persona/:code/universal/message/:messageIndex` – Delete a message from universal persona.
+
+#### Other
+- `GET /auth/:code` – Validate authentication code.
+- `GET /qr/:code` – Get QR code for WhatsApp session authentication.
+- `GET /health` – Health check endpoint.
 
 ## Voice Message Configuration
 
@@ -203,3 +241,29 @@ The voice feature supports 20+ languages including:
 - If QR codes stop refreshing, delete the `.wwebjs_auth` folder for the affected code and restart the service.
 - Gemini API errors will be logged with HTTP status. Verify API key, model name, and rate limits.
 - Use `LOG_LEVEL=debug` for verbose output during incident response.
+
+## Contributing
+
+We welcome contributions! Please follow these guidelines:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Setup
+
+- Run `npm run lint` before committing to ensure code quality
+- Use `npm run dev` for development with auto-reload
+- Test your changes thoroughly before submitting
+
+### Code Style
+
+- Follow the existing TypeScript/JavaScript style
+- Use ESLint configuration for consistency
+- Write clear, descriptive commit messages
+
+## License
+
+This project is licensed under the ISC License - see the [LICENSE](LICENSE) file for details.
