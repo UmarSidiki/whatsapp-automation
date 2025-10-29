@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>WhatsApp Automation Console</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+         background: #e8e8e8;
+         color: #1a1a1a;
+         line-height: 1.6;
+        }
+        header {
+         background: #2a2a2a;
+         color: #fff;
+         padding: 16px 24px;
+         border-bottom: 2px solid #000;
+         text-align: center;
+        }
+        header h1 {
+         font-size: 1.25rem;
+         font-weight: 600;
+         letter-spacing: -0.02em;
+        }
+        main {
+         max-width: 1200px;
+         margin: 0 auto;
+         padding: 24px;
+        }
+        .card {
+         background: #fff;
+         border: 1px solid #ccc;
+         margin-bottom: 24px;
+         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+         border-radius: 6px;
+         overflow: hidden;
+        }
+        .card-header {
+         background: #f5f5f5;
+         padding: 16px 20px;
+         border-bottom: 1px solid #ccc;
+         font-weight: 600;
+         font-size: 1rem;
+        }
+        .card-body {
+         padding: 20px;
+        }
+        .tabs {
+         display: flex;
+         background: #f5f5f5;
+         border-bottom: 2px solid #000;
+         overflow-x: auto;
+         -webkit-overflow-scrolling: touch;
+        }
+        .tab-button {
+         background: transparent;
+         border: none;
+         padding: 14px 24px;
+         cursor: pointer;
+         font-size: 0.9rem;
+         font-weight: 500;
+         color: #666;
+         border-bottom: 3px solid transparent;
+         transition: all 0.2s;
+         white-space: nowrap;
+         flex-shrink: 0;
+        }
+        .tab-button:hover {
+         background: #ebebeb;
+         color: #1a1a1a;
+        }
+        .tab-button.active {
+         color: #000;
+         border-bottom-color: #000;
+         background: #fff;
+        }
+        .tab-content {
+         display: none;
+         padding: 24px;
+         background: #fff;
+        }
+        .tab-content.active {
+         display: block;
+        }
+        label {
+         display: block;
+         font-weight: 500;
+         font-size: 0.875rem;
+         margin-bottom: 6px;
+         color: #333;
+        }
+        input[type="text"],
+        input[type="number"],
+        input[type="password"],
+        input[type="datetime-local"],
+        input[type="file"],
+        textarea,
+        select {
+         width: 100%;
+         padding: 10px 12px;
+         border: 1px solid #999;
+         font-size: 0.9rem;
+         margin-bottom: 16px;
+         background: #fff;
+         color: #1a1a1a;
+         font-family: inherit;
+         border-radius: 4px;
+        }
+        input:focus,
+        textarea:focus,
+        select:focus {
+         outline: 2px solid #000;
+         outline-offset: 0;
+         border-color: #000;
+        }
+        input[type="checkbox"] {
+         width: 18px;
+         height: 18px;
+         margin: 0 8px 0 0;
+         cursor: pointer;
+        }
+        textarea {
+         resize: vertical;
+         min-height: 100px;
+        }
+        button {
+         background: #2a2a2a;
+         border: 1px solid #000;
+         color: #fff;
+         padding: 11px 20px;
+         font-size: 0.9rem;
+         font-weight: 500;
+         cursor: pointer;
+         transition: background 0.15s;
+         font-family: inherit;
+         border-radius: 4px;
+        }
+        button:hover:not(:disabled) {
+         background: #000;
+         color: #ebebeb;
+        }
+        button:disabled {
+         opacity: 0.5;
+         cursor: not-allowed;
+        }
+        button.secondary {
+         background: #666;
+         border-color: #555;
+        }
+        button.secondary:hover:not(:disabled) {
+         background: #555;
+        }
+        button.danger {
+         background: #c41e3a;
+         border-color: #a0182e;
+        }
+        button.danger:hover:not(:disabled) {
+         background: #a0182e;
+        }
+        button.small {
+         padding: 6px 12px;
+         font-size: 0.8rem;
+        }
+        .control-bar {
+         display: flex;
+         align-items: center;
+         justify-content: space-between;
+         padding: 16px 24px;
+         background: #f9f9f9;
+         border-bottom: 1px solid #ccc;
+         gap: 16px;
+         flex-wrap: wrap;
+        }
+        .session-indicator {
+         font-size: 0.875rem;
+         color: #333;
+         font-weight: 500;
+        }
+        img {
+         max-width: 100%;
+         width: 100%;
+         margin-top: 12px;
+         border: 2px solid #ccc;
+         border-radius: 6px;
+        }
+        #qrImg {
+         width: 280px;
+         max-width: 90vw;
+         height: auto;
+         display: block;
+         margin: 12px auto 0;
+        }
+        .hidden {
+         display: none !important;
+        }
+        .grid {
+         display: grid;
+         gap: 16px;
+         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+        .toggle-row {
+         display: flex;
+         align-items: center;
+         gap: 8px;
+         margin-bottom: 16px;
+         flex-wrap: wrap;
+        }
+        .toggle-row label {
+         margin: 0;
+        }
+        table {
+         width: 100%;
+         border-collapse: collapse;
+         margin-top: 16px;
+         font-size: 0.85rem;
+         border: 1px solid #ccc;
+         overflow-x: auto;
+         display: block;
+        }
+        th, td {
+         border: 1px solid #ddd;
+         padding: 10px;
+         text-align: left;
+         white-space: nowrap;
+        }
+        th {
+         background: #f5f5f5;
+         font-weight: 600;
+         border-bottom: 2px solid #999;
+        }
+        tbody tr:nth-child(even) {
+         background: #fafafa;
+        }
+        .status {
+         margin-top: 12px;
+         padding: 10px 12px;
+         font-size: 0.875rem;
+         border-left: 3px solid #666;
+         background: #f5f5f5;
+         border-radius: 4px;
+        }
+        .status.error {
+         border-left-color: #c41e3a;
+         background: #fef2f2;
+         color: #991b1b;
+        }
+        .status.success {
+         border-left-color: #16a34a;
+         background: #f0fdf4;
+         color: #15803d;
+        }
+        .help-text {
+         display: block;
+         margin-top: 4px;
+         font-size: 0.75rem;
+         color: #555;
+        }
+        .info-box {
+         padding: 12px;
+         background: #f9f9f9;
+         border: 1px solid #ddd;
+         margin-bottom: 16px;
+         font-size: 0.875rem;
+         color: #555;
+         border-radius: 4px;
+        }
+        .batch-input {
+         margin-bottom: 16px;
+         padding: 16px;
+         background: #fafafa;
+         border: 1px solid #ddd;
+         border-radius: 4px;
+        }
+        .batch-input h5 {
+         margin-bottom: 12px;
+         font-size: 0.9rem;
+         font-weight: 600;
+      }
+        .button-group {
+         display: flex;
+         gap: 12px;
+         flex-wrap: wrap;
+        }
+        .field-group {
+         margin-bottom: 20px;
+        }
+
+        /* Responsive Enhancements */
+        @media (max-width: 768px) {
+         main { padding: 16px; }
+         header h1 { font-size: 1.1rem; }
+         .card-body, .tab-content { padding: 16px; }
+         .control-bar { flex-direction: column; align-items: flex-start; gap: 8px; }
+         .tab-button { padding: 10px 16px; font-size: 0.85rem; }
+         th, td { padding: 8px; font-size: 0.8rem; }
+        }
+
+        @media (max-width: 480px) {
+          header h1 { font-size: 1rem; }
+          button { width: 100%; }
+          .button-group { flex-direction: column; }
+          .tab-button { padding: 8px 12px; }
+          .card-body, .tab-content { padding: 12px; }
+          .info-box { font-size: 0.8rem; }
+        }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>WhatsApp Automation Console</h1>
+    </header>
+
+    <main>
+      <div class="card" id="authSection">
+        <div class="card-header">Connect WhatsApp Session</div>
+        <div class="card-body">
+          <div class="field-group">
+            <label for="code">Authentication code</label>
+            <input
+              id="code"
+              type="password"
+              placeholder="Enter your auth code"
+              autocomplete="one-time-code"
+              required
+            />
+          </div>
+          <button id="startSessionBtn" type="button">Start session</button>
+        </div>
+      </div>
+
+      <div class="card hidden" id="qrBox">
+        <div class="card-header">WhatsApp QR Authentication</div>
+        <div class="card-body">
+          <div class="info-box">
+            Open WhatsApp on your phone → Settings → Linked Devices → Link a
+            Device → Scan the QR code below
+          </div>
+          <img id="qrImg" alt="WhatsApp QR code" width="300" />
+        </div>
+      </div>
+
+      <div class="card hidden" id="controlPanel">
+        <div class="control-bar">
+          <div
+            class="session-indicator"
+            id="sessionIndicator"
+            aria-live="polite"
+          >
+            Not connected
+          </div>
+          <button id="logoutBtn" type="button" class="secondary small hidden">
+            Logout
+          </button>
+        </div>
+        <div class="tabs">
+          <button class="tab-button active" data-tab="aiConfig">
+            AI Configuration
+          </button>
+          <button class="tab-button" data-tab="customReplies">
+            Custom Replies
+          </button>
+          <button class="tab-button" data-tab="bulkMessages">
+            Bulk Messaging
+          </button>
+          <button class="tab-button" data-tab="scheduling">Scheduling</button>
+          <button class="tab-button" data-tab="utils">Utils</button>
+          <button class="tab-button" data-tab="persona">Persona Manager</button>
+        </div>
+
+        <div class="tab-content active" id="aiConfig">
+          <div class="info-box">
+            AI credentials and settings persist in MongoDB and reload
+            automatically whenever this session reconnects.
+          </div>
+          <div class="field-group">
+            <div class="grid">
+              <div>
+                <label for="apiKey">Gemini API key *</label>
+                <input
+                  id="apiKey"
+                  type="password"
+                  placeholder="Enter your API key"
+                  autocomplete="off"
+                  required
+                />
+                <small id="apiKeyHint" class="help-text hidden"></small>
+              </div>
+              <div>
+                <label for="model">Model name *</label>
+                <input
+                  id="model"
+                  type="text"
+                  placeholder="gemini-1.5-flash"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="systemPrompt">System prompt (optional)</label>
+            <textarea
+              id="systemPrompt"
+              rows="4"
+              placeholder="Define the assistant's personality, tone, and context here"
+            ></textarea>
+          </div>
+
+          <div class="field-group">
+            <div class="toggle-row">
+              <input type="checkbox" id="autoReplyEnabled" checked />
+              <label for="autoReplyEnabled">Enable automatic AI replies</label>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="contextWindow"
+              >Conversation memory (messages to retain: 10-1000)</label
+            >
+            <input
+              id="contextWindow"
+              type="number"
+              min="10"
+              max="1000"
+              value="1000"
+            />
+            <div class="info-box">
+              The AI will remember the last N messages from each conversation to
+              provide contextual responses.
+            </div>
+          </div>
+
+          <button id="saveAiBtn" type="button">Save AI configuration</button>
+          <div id="aiStatus" class="status hidden" aria-live="polite"></div>
+        </div>
+
+        <div class="tab-content" id="customReplies">
+          <div class="info-box">
+            Custom replies trigger before AI processing. Use them for FAQs,
+            greetings, or keyword-based responses. Saved rules are persisted in
+            MongoDB and reload automatically when you sign back in.
+          </div>
+
+          <div class="batch-input">
+            <h5>Add custom reply rules</h5>
+            <div class="grid">
+              <div>
+               <label for="customTrigger">Trigger text</label>
+                <input
+                  id="customTrigger"
+                  type="text"
+                  placeholder="E.g., pricing, hello, help"
+                />
+              </div>
+              <div>
+                <label for="customMatchType">Match type</label>
+                <select id="customMatchType">
+                  <option value="contains">Contains (case-insensitive)</option>
+                  <option value="exact">Exact match</option>
+                  <option value="startsWith">Starts with</option>
+                  <option value="regex">Regular expression</option>
+                </select>
+              </div>
+            </div>
+            <label for="customResponse">Response message</label>
+            <textarea
+              id="customResponse"
+              rows="3"
+              placeholder="The message to send when this trigger matches"
+            ></textarea>
+            <button id="addCustomReplyBtn" type="button" class="secondary">
+              Add reply rule
+            </button>
+          
+          </div>
+
+          <div class="field-group">
+            <h5>Batch import (one rule per line)</h5>
+            <textarea
+              id="batchCustomReplies"
+              rows="6"
+              placeholder="Format: trigger|matchType|response
+Example:
+hello|contains|Hi there! How can I help you?
+pricing|startsWith|Our pricing starts at $99/month
+support|exact|Contact support@example.com"
+            ></textarea>
+            <button id="importBatchBtn" type="button" class="secondary">
+              Import batch rules
+            </button>
+          </div>
+
+          <table id="customRepliesTable" class="hidden">
+            <thead>
+              <tr>
+                <th>Trigger</th>
+                <th>Match type</th>
+                <th>Response</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+
+          <div class="button-group" style="margin-top: 16px">
+            <button id="saveCustomRepliesBtn" type="button">
+              Save custom replies
+            </button>
+            <button id="clearAllRepliesBtn" type="button" class="danger">
+              Clear all
+            </button>
+          </div>
+          <div
+            id="customReplyStatus"
+            class="status hidden"
+            aria-live="polite"
+          ></div>
+        </div>
+
+        <div class="tab-content" id="bulkMessages">
+          <div class="info-box">
+            Send the same message to multiple recipients. Numbers should include
+            country codes (e.g., +1234567890).
+          </div>
+
+          <div class="field-group">
+            <label for="bulkNumbers">Recipient phone numbers</label>
+            <textarea
+              id="bulkNumbers"
+              rows="6"
+              placeholder="Enter phone numbers (one per line, comma, or space-separated):
++15551234567
++447700900123"
+            ></textarea>
+          </div>
+
+          <div class="field-group">
+            <label for="bulkCsv">Or import from CSV/TXT file</label>
+            <input type="file" id="bulkCsv" accept=".csv,.txt" />
+          </div>
+
+          <div class="field-group">
+            <label for="bulkMessage">Message content *</label>
+            <textarea
+              id="bulkMessage"
+              rows="5"
+              placeholder="Type your broadcast message here"
+              required
+            ></textarea>
+          </div>
+
+          <button id="sendBulkBtn" type="button">Send bulk message</button>
+          <div id="bulkStatus" class="status hidden" aria-live="polite"></div>
+        </div>
+
+        <div class="tab-content" id="scheduling">
+          <div class="info-box">
+            Schedule messages to be sent at a future time. Scheduled jobs
+            persist in MongoDB and resume automatically after restarts.
+          </div>
+
+          <div class="grid">
+            <div class="field-group">
+              <label for="scheduleDateTime">Scheduled send time *</label>
+              <input id="scheduleDateTime" type="datetime-local" required />
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="scheduleNumbers">Recipient phone numbers *</label>
+            <textarea
+              id="scheduleNumbers"
+              rows="5"
+              placeholder="Enter phone numbers (one per line):
++15551234567
++918888777766"
+            ></textarea>
+          </div>
+
+          <div class="field-group">
+            <label for="scheduleMessage">Message content *</label>
+            <textarea
+              id="scheduleMessage"
+              rows="5"
+              placeholder="Message to be delivered at the scheduled time"
+              required
+            ></textarea>
+          </div>
+
+          <button id="createScheduleBtn" type="button">Schedule message</button>
+          <div
+            id="scheduleStatus"
+            class="status hidden"
+            aria-live="polite"
+          ></div>
+
+          <h4 style="margin-top: 32px; margin-bottom: 12px">
+            Scheduled messages
+          </h4>
+          <button id="refreshScheduleBtn" type="button" class="secondary small">
+            Refresh list
+          </button>
+
+          <table id="scheduleTable" class="hidden">
+            <thead>
+              <tr>
+                <th>Send at</th>
+                
+                <th>Status</th>
+                <th>Recipients</th>
+                <th>Message preview</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="tab-content" id="utils">
+          <div class="info-box">
+            Configure voice message support using Google Cloud Speech-to-Text
+            and Text-to-Speech APIs. s When enabled, the bot will transcribe
+            incoming voice messages and reply with voice messages.
+          </div>
+
+          <div
+            id="voiceApiStatusBox"
+            class="info-box hidden"
+            style="background: #f0fdf4; border-color: #16a34a"
+          >
+            <strong>✓ API Keys Status:</strong>
+            <ul style="margin: 8px 0 0 20px; padding: 0">
+              <li id="geminiKeyStatus" class="hidden">
+                Gemini API key stored in database
+              </li>
+              
+              <li id="speechToTextKeyStatus" class="hidden">
+                Speech-to-Text API key stored in database
+              </li>
+              <li id="textToSpeechKeyStatus" class="hidden">
+                Text-to-Speech API key stored in database
+              </li>
+            </ul>
+          </div>
+
+          <div class="field-group">
+            <div class="toggle-row">
+              <input type="checkbox" id="voiceReplyEnabled" />
+              <label for="voiceReplyEnabled"
+                >Enable voice message replies</label
+              >
+            </div>
+            <small class="help-text">
+              When enabled, the bot will transcribe voice messages and respond
+              with voice messages.
+            </small>
+          </div>
+
+          <div class="field-group">
+            <h4 style="margin-bottom: 12px">Google Cloud API Keys</h4>
+            <div class="grid">
+              <div>
+                <label for="speechToTextApiKey">Speech-to-Text API Key</label>
+                <input
+                  id="speechToTextApiKey"
+                  type="password"
+                  placeholder="Google Cloud Speech-to-Text API key"
+                  autocomplete="off"
+                />
+                <small
+                  id="speechToTextApiKeyHint"
+                  class="help-text hidden"
+                ></small>
+                <small class="help-text">
+                  This Required for transcribing voice messages to text.
+                  <a
+                    href="https://cloud.google.com/speech-to-text/docs/before-you-begin"
+                    target="_blank"
+                    rel="noopener"
+                    >Get API Key</a
+                  >
+                </small>
+              </div>
+              <div>
+                <label for="textToSpeechApiKey">Text-to-Speech API Key</label>
+                
+                <input
+                  id="textToSpeechApiKey"
+                  type="password"
+                  placeholder="Google Cloud Text-to-Speech API key"
+                  autocomplete="off"
+                />
+                <small
+                  id="textToSpeechApiKeyHint"
+                  class="help-text hidden"
+                ></small>
+                <small class="help-text">
+                  Required for converting AI responses to voice messages.
+                  <a
+                    href="https://cloud.google.com/text-to-speech/docs/before-you-begin"
+                    target="_blank"
+                    rel="noopener"
+                    >Get API Key</a
+                  >
+                </small>
+              </div>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <h4 style="margin-bottom: 12px">Voice Settings</h4>
+            <div class="grid">
+              <div>
+                <label for="voiceLanguage">Language Code</label>
+                <select id="voiceLanguage">
+                  <option value="en-US">English (US)</option>
+                  <option value="en-GB">English (UK)</option>
+                  <option value="es-ES">Spanish (Spain)</option>
+                
+                  <option value="es-US">Spanish (US)</option>
+                  <option value="fr-FR">French</option>
+                  <option value="de-DE">German</option>
+                  <option value="it-IT">Italian</option>
+                  <option value="pt-BR">Portuguese (Brazil)</option>
+                  <option value="pt-PT">Portuguese (Portugal)</option>
+                  <option value="ja-JP">Japanese</option>
+                  <option value="ko-KR">Korean</option>
+                  <option value="zh-CN">Chinese (Simplified)</option>
+                  
+                  <option value="zh-TW">Chinese (Traditional)</option>
+                  <option value="ar-SA">Arabic</option>
+                  
+                  <option value="hi-IN">Hindi</option>
+                  <option value="ur-PK">Urdu (Pakistan)</option>
+                  <option value="ur-IN">Urdu (India)</option>
+                  <option value="ru-RU">Russian</option>
+                  <option value="tr-TR">Turkish</option>
+                  <option value="pl-PL">Polish</option>
+                  <option value="nl-NL">Dutch</option>
+                  
+                  <option value="sv-SE">Swedish</option>
+                </select>
+                <small class="help-text">
+                  Language for speech recognition and synthesis.
+                </small>
+              </div>
+              <div>
+                <label for="voiceGender">Voice Gender</label>
+                
+                <select id="voiceGender">
+                  <option value="NEUTRAL">Neutral</option>
+                  
+                  <option value="MALE">Male</option>
+                  <option value="FEMALE">Female</option>
+                </select>
+                <small class="help-text">
+                  Voice gender for Text-to-Speech output.
+                </small>
+              </div>
+
+              
+              <div>
+                <label for="voiceName">Voice Name (Optional)</label>
+                <input
+                  type="text"
+                  id="voiceName"
+                  placeholder="e.g., ur-PK-Wavenet-A"
+                />
+                <small class="help-text">
+                  Specify a voice model. If blank, Google picks a default based
+                  on language/gender.
+                </small>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="info-box"
+            style="background: #fff3cd; border-color: #ffc107; color: #856404"
+          >
+            <strong>⚠️ Important:</strong> Voice message features require Google
+            Cloud APIs with billing enabled. Make sure you have set up billing
+            in your Google Cloud Console and enabled both Speech-to-Text and
+            Text-to-Speech APIs.
+          </div>
+
+          <button id="saveVoiceConfigBtn" type="button">
+            Save voice configuration
+          </button>
+          <div
+            id="voiceConfigStatus"
+            class="status hidden"
+            aria-live="polite"
+          ></div>
+        </div>
+
+        <div class="tab-content" id="persona">
+          <div class="info-box">
+            Manage AI persona learning data. View and edit messages used to teach the AI your writing style.
+            Contact-specific personas are used for chats with 250+ messages, otherwise universal persona is used.
+          </div>
+
+          <div style="margin-bottom: 20px;">
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+              <button id="viewUniversalPersonaBtn" type="button" style="flex: 1;">
+                📊 View Universal Persona
+              </button>
+              <button id="viewContactsBtn" type="button" style="flex: 1;">
+                👥 View Contacts
+              </button>
+            </div>
+
+            <div id="personaSearchBox" class="hidden" style="margin-bottom: 16px;">
+              <input
+                type="text"
+                id="contactSearchInput"
+                placeholder="Search contacts by phone number..."
+                style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;"
+              />
+            </div>
+          </div>
+
+          <div id="personaStats" class="hidden" style="margin-bottom: 20px; padding: 16px; background: #f5f5f5; border-radius: 4px;">
+            <h3 style="margin-bottom: 12px; font-size: 1rem;">Statistics</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+              <div>
+                <strong>Total Messages:</strong>
+                <span id="statTotalMessages">0</span>
+              </div>
+              <div>
+                <strong>User Messages:</strong>
+                <span id="statUserMessages">0</span>
+              </div>
+              <div>
+                <strong>My Replies:</strong>
+                <span id="statMyReplies">0</span>
+              </div>
+              <div>
+                <strong>AI Replies:</strong>
+                <span id="statAiReplies">0</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="contactsList" class="hidden">
+            <h3 style="margin-bottom: 12px;">Contacts with Persona Data</h3>
+            <table id="contactsTable">
+              <thead>
+                <tr>
+                  <th>Contact ID</th>
+                  <th>Messages</th>
+                  <th>Last Message</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div id="personaMessages" class="hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+              <h3 id="personaTitle">Messages</h3>
+              <button id="backToContactsBtn" type="button">← Back</button>
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="filterMyReplies" checked />
+                Show only "My reply:" messages (used for learning)
+              </label>
+            </div>
+
+            <table id="messagesTable">
+              <thead>
+                <tr>
+                  <th style="width: 60%;">Message</th>
+                  <th style="width: 20%;">Timestamp</th>
+                  <th style="width: 20%;">Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div
+            id="personaStatus"
+            class="status hidden"
+            aria-live="polite"
+          ></div>
+        </div>
+      </div>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>

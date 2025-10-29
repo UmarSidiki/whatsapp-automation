@@ -1,0 +1,46 @@
+Dependencies
+/node_modules
+/dist
+/coverage
+/public/build
+/.wwebjs_auth
+/.wwebjs_cache
+/codes
+/tokens
+
+TypeScript/Vite/Build Artifacts
+/dist-ssr/
+/dist/
+/temp/
+.vite/
+.output/
+.parcel-cache
+.nuxt/
+.vercel/
+.husky/
+
+Testing
+/test-results/
+
+Editor/OS Files
+.idea/
+.vscode/
+*.log
+.DS_Store
+Thumbs.db
+
+Environment Variables
+.env
+.env.*
+!.env.example
+
+NPM/Yarn/PNPM specific
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+*.tgz
+
+Other Caches
+*.tsbuildinfo
