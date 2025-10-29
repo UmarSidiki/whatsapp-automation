@@ -1,7 +1,7 @@
 "use strict";
 
-import fs from 'fs/promises';
-import path from 'path';
+import fs from "fs/promises";
+import path from "path";
 import createApp from "../app";
 import env from "../config/env";
 import logger from "../config/logger";
@@ -10,8 +10,9 @@ import { restoreSessions } from "./sessionRestorer";
 
 async function ensureAuthDirectory() {
   // Get the configured auth directory or use default
-  const authDir = env.remoteAuthDataPath || path.join(process.cwd(), ".wwebjs_auth");
-  
+  const authDir =
+    env.remoteAuthDataPath || path.join(process.cwd(), ".wwebjs_auth");
+
   try {
     // Check if directory exists
     await fs.access(authDir).catch(async () => {
@@ -19,31 +20,38 @@ async function ensureAuthDirectory() {
       await fs.mkdir(authDir, { recursive: true });
       logger.info({ dir: authDir }, "Created WhatsApp auth directory");
     });
-    
+
     // Ensure directory is writable
     await fs.access(authDir, fs.constants.W_OK).catch(() => {
       throw new Error(`WhatsApp auth directory is not writable: ${authDir}`);
     });
-    
+
     logger.info({ dir: authDir }, "WhatsApp auth directory ready");
     return authDir;
   } catch (error) {
-    logger.error({ err: error, dir: authDir }, "Failed to prepare WhatsApp auth directory");
+    logger.error(
+      { err: error, dir: authDir },
+      "Failed to prepare WhatsApp auth directory"
+    );
     throw error;
   }
 }
 
 async function startServer() {
   await connectMongo();
-  
+
   // Ensure auth directory exists and is writable before restoring sessions
   await ensureAuthDirectory();
-  
-  await restoreSessions();
 
   const app = createApp();
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, "Server running");
+  });
+
+  // Restore sessions AFTER server is running so UI is accessible
+  // This allows users to see QR codes while sessions are being restored
+  restoreSessions().catch((err) => {
+    logger.error({ err }, "Failed to restore sessions on startup");
   });
 
   return { app, server };

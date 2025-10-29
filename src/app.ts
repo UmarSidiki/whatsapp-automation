@@ -31,6 +31,17 @@ function createApp(): Application {
   app.use(globalLimiter);
 
   const staticDir = env.staticDir;
+  const staticDirAbsolute = path.resolve(staticDir);
+  logger.info(
+    {
+      staticDir,
+      staticDirAbsolute,
+      exists: fs.existsSync(staticDir),
+      cwd: process.cwd(),
+    },
+    "Static directory configuration"
+  );
+
   if (fs.existsSync(staticDir)) {
     app.use(
       express.static(staticDir, {
@@ -38,8 +49,12 @@ function createApp(): Application {
         fallthrough: true,
       })
     );
+    logger.info({ staticDir }, "Static frontend directory mounted");
   } else {
-    logger.warn({ staticDir }, "Static frontend directory not found");
+    logger.warn(
+      { staticDir, staticDirAbsolute, cwd: process.cwd() },
+      "Static frontend directory not found"
+    );
   }
 
   registerRoutes(app);
