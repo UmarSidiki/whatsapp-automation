@@ -85,6 +85,7 @@ async function ensureSession(code) {
     chatHistory: new Map(),
     scheduledJobs: new Map(),
     destroyed: false, // Added 'destroyed' flag from original logic
+    hasBeenAuthenticated: false, // Track if session was ever authenticated
   };
   // --- END CHANGE ---
 
@@ -131,6 +132,7 @@ async function ensureSession(code) {
     state.client = client;
     state.ready = true;
     state.startedAt = Date.now();
+    state.hasBeenAuthenticated = true; // Mark as authenticated once ready
 
     // Store bot information for owner detection
     // Property name changed from 'info.wid' to 'getHostDevice()'
@@ -148,7 +150,10 @@ async function ensureSession(code) {
         }
       } catch (err) {
         logger.warn({ code, err }, "Failed to retrieve host device info");
-        logger.info({ code }, "WhatsApp client ready (host device fetch failed)");
+        logger.info(
+          { code },
+          "WhatsApp client ready (host device fetch failed)"
+        );
       }
     }
     // --- END LOGIC MOVED ---
@@ -212,21 +217,28 @@ function registerEventHandlers(code, state) {
 
     if (newState === "CONNECTED") {
       state.ready = true;
+      state.hasBeenAuthenticated = true;
       logger.info({ code }, "WhatsApp client reconnected");
     } else if (newState === "UNPAIRED") {
-      // Treat as logout, destroy without recreate
-      logger.error(
-        { code, msg: newState },
-        "WhatsApp unpaired (logout) — destroying session"
-      );
-      state.ready = false;
-      try {
-        await destroySession(code); // destroySession deletes from map, no reconnect
-      } catch (err) {
+      // Only destroy if session was previously authenticated
+      // UNPAIRED during initial setup is normal and shouldn't destroy the session
+      if (state.hasBeenAuthenticated) {
         logger.error(
-          { err, code },
-          `Failed during ${newState} handling`
+          { code, msg: newState },
+          "WhatsApp unpaired (logout) — destroying session"
         );
+        state.ready = false;
+        try {
+          await destroySession(code); // destroySession deletes from map, no reconnect
+        } catch (err) {
+          logger.error({ err, code }, `Failed during ${newState} handling`);
+        }
+      } else {
+        logger.info(
+          { code },
+          "Session UNPAIRED during initial setup - waiting for QR scan"
+        );
+        state.ready = false;
       }
     } else if (newState === "CONFLICT") {
       // Treat as auth failure, destroy and recreate for new QR
@@ -244,20 +256,23 @@ function registerEventHandlers(code, state) {
           `Re-created session after ${newState}; awaiting QR if needed`
         );
       } catch (err) {
-        logger.error(
-          { err, code },
-          `Failed during ${newState} handling`
-        );
+        logger.error({ err, code }, `Failed during ${newState} handling`);
       }
     } else if (newState === "DISCONNECTED") {
       // This is the generic 'disconnected' event
-      logger.warn({ code, reason: "DISCONNECTED" }, "WhatsApp client disconnected");
+      logger.warn(
+        { code, reason: "DISCONNECTED" },
+        "WhatsApp client disconnected"
+      );
       state.ready = false;
 
       // Attempt to reconnect if not deliberately destroyed
       if (!state.destroyed) {
         const reconnectDelay = 2000;
-        logger.info({ code, reconnectDelay }, "Scheduling reconnection attempt");
+        logger.info(
+          { code, reconnectDelay },
+          "Scheduling reconnection attempt"
+        );
 
         setTimeout(async () => {
           if (sessions.has(code) && !state.destroyed && !state.ready) {
@@ -294,6 +309,7 @@ function registerEventHandlers(code, state) {
               state.client = client;
               state.ready = true;
               state.startedAt = Date.now();
+              state.hasBeenAuthenticated = true;
 
               // Re-fetch botNumber
               try {
@@ -305,22 +321,34 @@ function registerEventHandlers(code, state) {
                     "WhatsApp client reconnected and ready"
                   );
                 } else {
-                  logger.info({ code }, "WhatsApp client reconnected (no info available)");
+                  logger.info(
+                    { code },
+                    "WhatsApp client reconnected (no info available)"
+                  );
                 }
               } catch (err) {
-                logger.warn({ code, err }, "Failed to retrieve host device info on reconnect");
+                logger.warn(
+                  { code, err },
+                  "Failed to retrieve host device info on reconnect"
+                );
               }
 
               // Re-register handlers
               registerEventHandlers(code, state);
               await hydrateSessionState(code, state);
             } catch (err) {
-              logger.error({ err, code }, "Failed to reconnect WhatsApp client");
+              logger.error(
+                { err, code },
+                "Failed to reconnect WhatsApp client"
+              );
             }
           }
         }, reconnectDelay);
       } else {
-        logger.info({ code }, "Session is destroyed, not attempting reconnect.");
+        logger.info(
+          { code },
+          "Session is destroyed, not attempting reconnect."
+        );
       }
     }
   });
