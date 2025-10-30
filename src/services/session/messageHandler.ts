@@ -511,7 +511,7 @@ function registerMessageHandlers(code: string, state: any) {
     // Persist incoming message (exclude media - voice messages are already transcribed to text)
     const hasMedia = msg.hasMedia || msg.isMedia;
     const shouldPersist = !hasMedia || isVoiceMessage; // Voice messages are OK since we have transcribed text
-    
+
     appendHistoryEntry(current, chatId, { role: "user", text });
     if (shouldPersist) {
       persistChatMessage(code, chatId, "incoming", text, false); // false = not AI-generated

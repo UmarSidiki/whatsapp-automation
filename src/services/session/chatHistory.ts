@@ -12,7 +12,7 @@ let historyPruneInterval = null;
 
 /** Chat message entry in memory */
 interface ChatMessage {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant";
   text: string;
   timestamp: number;
 }
@@ -68,7 +68,7 @@ function touchChat(session: any, chatId: string): void {
 function appendHistoryEntry(
   session: any,
   chatId: string,
-  entry: { role: "user" | "assistant" | "system"; text: string; timestamp?: number }
+  entry: { role: "user" | "assistant"; text: string; timestamp?: number }
 ): ChatMessage[] {
   const historyStore = ensureChatHistory(session);
   let chat = historyStore.get(chatId);
