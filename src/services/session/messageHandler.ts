@@ -633,6 +633,7 @@ function registerMessageHandlers(code: string, state: any) {
             {
               ...config,
               personaExamples, // Pass persona examples to geminiService
+              contactId: chatId, // Pass contactId for context caching
             },
             history
           );
