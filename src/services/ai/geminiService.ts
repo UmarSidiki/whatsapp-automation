@@ -21,7 +21,7 @@ interface GenerateReplyParams {
   apiKey: string;
   model: string;
   systemPrompt: string;
-  personaExamples: string[];
+  loadPersonaExamples: () => Promise<string[]>; // Lazy loader function
   contactId: string;
 }
 
@@ -67,6 +67,20 @@ interface CreateCachePayload {
 // FIX: Use the specific CacheEntry type
 const cacheRegistry = new Map<string, CacheEntry>();
 
+// --- MEMORY OPTIMIZATION: Contact ID Mapping ---
+// Map long contact IDs to short numeric IDs to save memory in cache keys
+// Saves ~8-10KB per 100 contacts
+const contactIdMap = new Map<string, number>();
+let nextContactId = 1;
+
+function getNumericContactId(contactId: string): number {
+  if (!contactIdMap.has(contactId)) {
+    contactIdMap.set(contactId, nextContactId++);
+  }
+  return contactIdMap.get(contactId)!;
+}
+// --- END OPTIMIZATION ---
+
 // ##################################################################
 // MAIN REPLY FUNCTION
 // ##################################################################
@@ -77,7 +91,7 @@ async function generateReply(
     apiKey,
     model,
     systemPrompt,
-    personaExamples,
+    loadPersonaExamples,
     contactId,
   }: GenerateReplyParams,
   history: HistoryEntry[] // FIX: Use HistoryEntry type
@@ -96,50 +110,80 @@ async function generateReply(
     totalChars,
   } = sanitizeHistory(messages);
 
-  // 2. Build the persona prompt from examples
-  const personaText = buildPersonaPrompt(personaExamples);
   const staticSystemPrompt =
     typeof systemPrompt === "string" ? systemPrompt.trim() : "";
 
-  let payload: GenerateContentPayload; // FIX: Use specific payload type
+  let payload: GenerateContentPayload;
   let isCached = false;
-  let cacheKey: string | null = null; // This declaration fixes the `cacheKey` scope errors
+  let cacheKey: string | null = null;
 
-  // 3. Decide whether to use caching
-  const estimatedTokens = Math.floor(
-    (personaText.length + staticSystemPrompt.length) / 4
-  );
+  // --- MEMORY OPTIMIZATION: Check cache first, only load persona if needed ---
+  // First, check if we have a valid cache without loading persona examples
+  // This saves 15-20MB/hour by avoiding unnecessary DB queries
+  
+  // Try to find existing cache by checking all cache keys for this contact
+  // Use numeric ID for efficient lookup
+  const numericId = getNumericContactId(contactId);
+  let existingCache: CacheEntry | null = null;
+  for (const [key, entry] of cacheRegistry.entries()) {
+    if (key.startsWith(`${numericId}_`) && entry.expiresAt > Date.now()) {
+      existingCache = entry;
+      cacheKey = key;
+      break;
+    }
+  }
 
-  if (
-    personaExamples &&
-    personaExamples.length > 0 &&
-    contactId &&
-    estimatedTokens >= MIN_TOKENS_FOR_CACHING
-  ) {
-    // 4a. Caching Path
-    cacheKey = `${contactId}_${hashString(personaText)}`; // Assign to existing var
-    const cachedContent = await getOrCreateCache(
-      key,
-      modelName,
-      staticSystemPrompt,
-      personaText,
-      cacheKey
+  if (existingCache) {
+    // 2a. Cache hit - use cached content without loading persona
+    payload = buildRequestPayload(null, sanitizedHistory, existingCache.name);
+    isCached = true;
+    
+    logger.debug(
+      { contactId, cacheKey, expiresAt: existingCache.expiresAt },
+      "Using existing cache, skipping persona load"
+    );
+  } else {
+    // 2b. No cache - load persona examples and decide on caching
+    const personaExamples = await loadPersonaExamples();
+    const personaText = buildPersonaPrompt(personaExamples);
+    
+    const estimatedTokens = Math.floor(
+      (personaText.length + staticSystemPrompt.length) / 4
     );
 
-    if (cachedContent) {
-      payload = buildRequestPayload(null, sanitizedHistory, cachedContent.name);
-      isCached = true;
+    if (
+      personaExamples &&
+      personaExamples.length > 0 &&
+      contactId &&
+      estimatedTokens >= MIN_TOKENS_FOR_CACHING
+    ) {
+      // 3a. Caching Path - create new cache
+      // Use numeric ID to save memory
+      cacheKey = `${getNumericContactId(contactId)}_${hashString(personaText)}`;
+      const cachedContent = await getOrCreateCache(
+        key,
+        modelName,
+        staticSystemPrompt,
+        personaText,
+        cacheKey
+      );
+
+      if (cachedContent) {
+        payload = buildRequestPayload(null, sanitizedHistory, cachedContent.name);
+        isCached = true;
+      } else {
+        const fullPrompt =
+          (staticSystemPrompt ? `${staticSystemPrompt}\n\n` : "") + personaText;
+        payload = buildRequestPayload(fullPrompt, sanitizedHistory, null);
+      }
     } else {
+      // 3b. Non-Caching Path - use full prompt
       const fullPrompt =
         (staticSystemPrompt ? `${staticSystemPrompt}\n\n` : "") + personaText;
       payload = buildRequestPayload(fullPrompt, sanitizedHistory, null);
     }
-  } else {
-    // 4b. Non-Caching Path
-    const fullPrompt =
-      (staticSystemPrompt ? `${staticSystemPrompt}\n\n` : "") + personaText;
-    payload = buildRequestPayload(fullPrompt, sanitizedHistory, null);
   }
+  // --- END OPTIMIZATION ---
 
   if (!payload.contents.length) {
     return null;

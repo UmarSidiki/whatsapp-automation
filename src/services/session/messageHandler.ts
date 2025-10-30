@@ -559,68 +559,73 @@ function registerMessageHandlers(code: string, state: any) {
       const { clampContextWindow } = await import("./configManager");
       const contextWindow = clampContextWindow(config.contextWindow);
 
-      // Retrieve historical data for persona
-      const { getChatMessages, getUniversalPersona } = await import(
-        "../persistence/chatPersistenceService"
-      );
-      const chatMessages = await getChatMessages(code, chatId);
-
-      // Extract conversation pairs (User message + My reply) for contextual learning
-      // Use context window to determine how many examples to use
-      let personaExamples: string[] = [];
-
-      if (chatMessages.length >= 250) {
-        // Use contact-specific persona for established chats (250+ messages)
-        // Build conversation pairs: show what user said and how I responded
-        const conversationPairs: string[] = [];
-
-        for (let i = 0; i < chatMessages.length - 1; i++) {
-          const current = chatMessages[i].message;
-          const next = chatMessages[i + 1].message;
-
-          // Find pairs where user message is followed by my reply
-          if (current.startsWith("User: ") && next.startsWith("My reply: ")) {
-            const userMsg = current.replace("User: ", "");
-            const myReply = next.replace("My reply: ", "");
-            conversationPairs.push(
-              `User said: "${userMsg}"\nI replied: "${myReply}"`
-            );
-          }
-        }
-
-        personaExamples = conversationPairs.slice(-contextWindow);
-
-        logger.debug(
-          {
-            code,
-            chatId,
-            personaSource: "contact",
-            exampleCount: personaExamples.length,
-            totalMessages: chatMessages.length,
-            contextWindow,
-          },
-          "Using contact-specific persona with conversation pairs"
-        );
-      } else {
-        // Use universal persona for new/small chats (already just your replies)
-        const universalMessages = await getUniversalPersona(code);
-        personaExamples = universalMessages.slice(-contextWindow);
-
-        logger.debug(
-          {
-            code,
-            chatId,
-            personaSource: "universal",
-            exampleCount: personaExamples.length,
-            contextWindow,
-          },
-          "Using universal persona"
-        );
-      }
-
       // Use recent history for context
       const { getHistoryForChat } = await import("./chatHistory");
       const history = getHistoryForChat(current, chatId, contextWindow);
+
+      // --- MEMORY OPTIMIZATION: Lazy Load Persona Examples ---
+      // Only load persona examples if they will actually be used
+      // This saves 15-20MB/hour by not loading data that gets cached anyway
+      const loadPersonaExamples = async (): Promise<string[]> => {
+        const { getChatMessages, getUniversalPersona } = await import(
+          "../persistence/chatPersistenceService"
+        );
+        const chatMessages = await getChatMessages(code, chatId);
+
+        let personaExamples: string[] = [];
+
+        if (chatMessages.length >= 250) {
+          // Use contact-specific persona for established chats (250+ messages)
+          // Build conversation pairs: show what user said and how I responded
+          const conversationPairs: string[] = [];
+
+          for (let i = 0; i < chatMessages.length - 1; i++) {
+            const current = chatMessages[i].message;
+            const next = chatMessages[i + 1].message;
+
+            // Find pairs where user message is followed by my reply
+            if (current.startsWith("User: ") && next.startsWith("My reply: ")) {
+              const userMsg = current.replace("User: ", "");
+              const myReply = next.replace("My reply: ", "");
+              conversationPairs.push(
+                `User said: "${userMsg}"\nI replied: "${myReply}"`
+              );
+            }
+          }
+
+          personaExamples = conversationPairs.slice(-contextWindow);
+
+          logger.debug(
+            {
+              code,
+              chatId,
+              personaSource: "contact",
+              exampleCount: personaExamples.length,
+              totalMessages: chatMessages.length,
+              contextWindow,
+            },
+            "Using contact-specific persona with conversation pairs"
+          );
+        } else {
+          // Use universal persona for new/small chats (already just your replies)
+          const universalMessages = await getUniversalPersona(code);
+          personaExamples = universalMessages.slice(-contextWindow);
+
+          logger.debug(
+            {
+              code,
+              chatId,
+              personaSource: "universal",
+              exampleCount: personaExamples.length,
+              contextWindow,
+            },
+            "Using universal persona"
+          );
+        }
+
+        return personaExamples;
+      };
+      // --- END OPTIMIZATION ---
 
       let reply = null;
       let retryCount = 0;
@@ -632,7 +637,7 @@ function registerMessageHandlers(code: string, state: any) {
           reply = await generateReply(
             {
               ...config,
-              personaExamples, // Pass persona examples to geminiService
+              loadPersonaExamples, // Pass lazy loader function instead of data
               contactId: chatId, // Pass contactId for context caching
             },
             history

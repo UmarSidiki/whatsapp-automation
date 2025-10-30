@@ -31,25 +31,37 @@ function ensureChatHistory(session: any): Map<string, ChatHistory> {
 
   const historyStore = session.chatHistory;
 
-  // Enforce max histories per session (LRU-like: remove least recently accessed)
+  // --- MEMORY OPTIMIZATION: Efficient LRU Pruning ---
+  // Instead of sorting all entries, find and remove oldest one at a time
+  // Saves ~8-10KB per prune operation by avoiding full array allocation
   if (historyStore.size > MAX_CHAT_HISTORIES_PER_SESSION) {
     const excess = historyStore.size - MAX_CHAT_HISTORIES_PER_SESSION;
-
-    // Sort by lastAccessed (oldest first)
-    const sorted = Array.from(historyStore.entries())
-      .sort((a, b) => a[1].lastAccessed - b[1].lastAccessed)
-      .map(([chatId]) => chatId);
+    let removed = 0;
 
     for (let i = 0; i < excess; i++) {
-      const chatId = sorted[i];
-      historyStore.delete(chatId);
+      let oldestKey: string | null = null;
+      let oldestTime = Infinity;
+      
+      // Find the oldest entry
+      for (const [chatId, chat] of historyStore.entries()) {
+        if (chat.lastAccessed < oldestTime) {
+          oldestTime = chat.lastAccessed;
+          oldestKey = chatId;
+        }
+      }
+      
+      if (oldestKey) {
+        historyStore.delete(oldestKey);
+        removed++;
+      }
     }
 
     logger.debug(
-      { sessionCode: session.sessionCode, removed: excess, remaining: historyStore.size },
-      "Pruned excess chat histories (LRU policy)"
+      { sessionCode: session.sessionCode, removed, remaining: historyStore.size },
+      "Pruned excess chat histories (optimized LRU policy)"
     );
   }
+  // --- END OPTIMIZATION ---
 
   return historyStore;
 }

@@ -61,6 +61,22 @@ async function startServer() {
     logger.error({ err }, "Failed to restore sessions on startup");
   });
 
+  // --- MEMORY OPTIMIZATION: Memory Monitoring ---
+  // Track memory usage to verify optimization effectiveness
+  setInterval(() => {
+    const usage = process.memoryUsage();
+    logger.info(
+      {
+        heapUsed: Math.round(usage.heapUsed / 1024 / 1024) + "MB",
+        heapTotal: Math.round(usage.heapTotal / 1024 / 1024) + "MB",
+        external: Math.round(usage.external / 1024 / 1024) + "MB",
+        rss: Math.round(usage.rss / 1024 / 1024) + "MB",
+      },
+      "Memory usage snapshot"
+    );
+  }, 60000); // Every minute
+  // --- END OPTIMIZATION ---
+
   return { app, server };
 }
 
