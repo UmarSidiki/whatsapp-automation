@@ -134,7 +134,7 @@ async function sendFragmentedReply(
   config = null
 ) {
   // If the reply is short, send as a single message
-  if (fullReply.length <= 100) {
+  if (fullReply.length <= 60) {
     // Changed from word count to character count for better control
     await safeReply(client, msg, fullReply, sendAsVoice, config);
     return;
