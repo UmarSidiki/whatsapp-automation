@@ -4,12 +4,8 @@ import env from "../../config/env";
 import logger from "../../config/logger";
 import { fetchFn, createTimeoutSignal } from "../../utils/http";
 
-const MAX_MESSAGE_LENGTH = 2000;
-const MAX_PROMPT_CHARS = 6000;
-
-// Context caching configuration
-const CACHE_TTL_SECONDS = 7200; // 2 hours
-const MIN_TOKENS_FOR_CACHING = 2048; // Correct minimum for modern Flash models
+const MAX_MESSAGE_LENGTH = 10000;
+const MAX_PROMPT_CHARS = 250000;
 
 // ##################################################################
 // TYPE DEFINITIONS
@@ -19,7 +15,7 @@ interface GenerateReplyParams {
   apiKey: string;
   model: string;
   systemPrompt: string;
-  loadPersonaExamples: () => Promise<string[]>; // Lazy loader function
+  loadPersonaExamples: () => Promise<string[]>;
   contactId: string;
 }
 
@@ -35,44 +31,15 @@ interface SanitizedHistoryResult {
   totalChars: number;
 }
 
-interface CacheEntry {
-  name: string;
-  expiresAt: number;
-  apiKey: string;
-}
-
 interface GeminiContent {
   role: "user" | "model";
   parts: [{ text: string }];
 }
 
-interface GeminiSystemInstruction {
-  parts: [{ text: string }];
-}
-
 interface GenerateContentPayload {
   contents: GeminiContent[];
-  cachedContent?: string;
-  system_instruction?: GeminiSystemInstruction;
-}
-
-interface CreateCachePayload {
-  model: string;
-  systemInstruction: GeminiSystemInstruction;
-  contents: GeminiContent[];
-  ttl: string;
-}
-
-const cacheRegistry = new Map<string, CacheEntry>();
-
-const contactIdMap = new Map<string, number>();
-let nextContactId = 1;
-
-function getNumericContactId(contactId: string): number {
-  if (!contactIdMap.has(contactId)) {
-    contactIdMap.set(contactId, nextContactId++);
-  }
-  return contactIdMap.get(contactId)!;
+  // cachedContent is removed
+  // system_instruction is removed
 }
 
 // ##################################################################
@@ -85,7 +52,7 @@ async function generateReply(
     model,
     systemPrompt,
     loadPersonaExamples,
-    contactId,
+    contactId, // Used for logging
   }: GenerateReplyParams,
   history: HistoryEntry[]
 ) {
@@ -105,71 +72,17 @@ async function generateReply(
   const staticSystemPrompt =
     typeof systemPrompt === "string" ? systemPrompt.trim() : "";
 
-  let payload: GenerateContentPayload;
-  let isCached = false;
-  let cacheKey: string | null = null;
+  // --- Caching logic removed ---
+  // We now always build the full prompt every time.
 
-  const numericId = getNumericContactId(contactId);
-  let existingCache: CacheEntry | null = null;
-  for (const [key, entry] of cacheRegistry.entries()) {
-    if (key.startsWith(`${numericId}_`) && entry.expiresAt > Date.now()) {
-      existingCache = entry;
-      cacheKey = key;
-      break;
-    }
-  }
+  const personaExamples = await loadPersonaExamples();
+  const personaText = buildPersonaPrompt(personaExamples);
 
-  if (existingCache) {
-    payload = buildRequestPayload(null, sanitizedHistory, existingCache.name);
-    isCached = true;
-
-    logger.debug(
-      { contactId, cacheKey, expiresAt: existingCache.expiresAt },
-      "Using existing cache, skipping persona load"
-    );
-  } else {
-    const personaExamples = await loadPersonaExamples();
-    const personaText = buildPersonaPrompt(personaExamples); // <-- This is the only change in this block
-
-    const estimatedTokens = Math.floor(
-      (personaText.length + staticSystemPrompt.length) / 4
-    );
-
-    if (
-      personaExamples &&
-      personaExamples.length > 0 &&
-      contactId &&
-      estimatedTokens >= MIN_TOKENS_FOR_CACHING
-    ) {
-      cacheKey = `${getNumericContactId(contactId)}_${hashString(personaText)}`;
-      const cachedContent = await getOrCreateCache(
-        key,
-        modelName,
-        staticSystemPrompt,
-        personaText,
-        cacheKey
-      );
-
-      if (cachedContent) {
-        payload = buildRequestPayload(
-          null,
-          sanitizedHistory,
-          cachedContent.name
-        );
-        isCached = true;
-      } else {
-        const fullPrompt =
-          (staticSystemPrompt ? `${staticSystemPrompt}\n\n` : "") + personaText;
-        payload = buildRequestPayload(fullPrompt, sanitizedHistory, null);
-      }
-    } else {
-      // Non-caching path: Build the full prompt for system_instruction
-      // We STILL use the new personaText format here
-      const fullPrompt =
-        (staticSystemPrompt ? `${staticSystemPrompt}\n\n` : "") + personaText;
-      payload = buildRequestPayload(fullPrompt, sanitizedHistory, null);
-    }
-  }
+  // Build the full prompt to be sent as the first user message
+  const fullPrompt =
+    (staticSystemPrompt ? `${staticSystemPrompt}\n\n` : "") + personaText;
+    
+  const payload = buildRequestPayload(fullPrompt, sanitizedHistory);
 
   if (!payload.contents.length) {
     return null;
@@ -178,11 +91,11 @@ async function generateReply(
   if (historyTruncated) {
     logger.debug(
       {
+        contactId, // Kept contactId for logging
         historyTruncated,
         totalChars,
         maxChars: MAX_PROMPT_CHARS,
         messageCount: sanitizedHistory.length,
-        isCached,
       },
       "Gemini prompt history truncated"
     );
@@ -200,7 +113,7 @@ async function generateReply(
     });
   } catch (error) {
     if (isTimeoutError(error)) {
-      logger.warn({ err: error }, "Gemini request timed out");
+      logger.warn({ err: error, contactId }, "Gemini request timed out");
       return null;
     }
     throw error;
@@ -221,18 +134,13 @@ async function generateReply(
           status: response.status,
           message: errorPayload?.error?.message,
           model: modelName,
+          contactId,
         },
         "Gemini API overloaded - model unavailable"
       );
     }
-
-    if (errorPayload?.error?.message?.includes("CachedContent not found")) {
-      logger.warn(
-        { cacheKey },
-        "CachedContent not found on server, deleting from local registry."
-      );
-      if (cacheKey) cacheRegistry.delete(cacheKey);
-    }
+    
+    // --- Removed "CachedContent not found" error handler ---
 
     throw error;
   }
@@ -245,145 +153,33 @@ async function generateReply(
 }
 
 // ##################################################################
-// CACHING FUNCTIONS
+// CACHING FUNCTIONS - ALL REMOVED
 // ##################################################################
 
-async function getOrCreateCache(
-  apiKey: string,
-  model: string,
-  systemPrompt: string | null,
-  personaText: string,
-  cacheKey: string
-): Promise<CacheEntry | null> {
-  const existing = cacheRegistry.get(cacheKey);
-  if (existing && existing.expiresAt > Date.now()) {
-    return existing;
-  }
-
-  if (existing) {
-    await deleteRemoteCache(existing.apiKey, existing.name);
-  }
-
-  try {
-    // CRITICAL FIX: Use message-based approach for cache too
-    // Send prompt as conversation instead of systemInstruction
-    const fullPrompt = systemPrompt 
-      ? `${systemPrompt}\n\n${personaText}`
-      : personaText;
-
-    const cachePayload: CreateCachePayload = {
-      model: `models/${model}`,
-      systemInstruction: {
-        parts: [{ text: "" }], // Empty system instruction
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: fullPrompt }],
-        },
-        {
-          role: "model",
-          parts: [{ text: "Understood. I will follow these instructions and reply in the specified style." }],
-        },
-      ],
-      ttl: `${CACHE_TTL_SECONDS}s`,
-    };
-
-    const url = `${env.GEMINI_BASE_URL}/v1beta/cachedContents?key=${apiKey}`;
-    const response = await fetchFn(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cachePayload),
-      signal: createTimeoutSignal(30000),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      logger.warn(
-        { status: response.status, error, cacheKey },
-        "Failed to create Gemini cache, falling back to non-cached"
-      );
-      return null;
-    }
-
-    const data: { name: string } = await response.json();
-    const cacheEntry: CacheEntry = {
-      name: data.name,
-      expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000,
-      apiKey: apiKey,
-    };
-
-    cacheRegistry.set(cacheKey, cacheEntry);
-    logger.info(
-      { cacheName: data.name, ttl: CACHE_TTL_SECONDS, cacheKey },
-      "Created new Gemini context cache"
-    );
-
-    return cacheEntry;
-  } catch (error) {
-    logger.warn(
-      { err: error, cacheKey },
-      "Error creating context cache, proceeding without cache"
-    );
-    return null;
-  }
-}
-
-async function deleteRemoteCache(apiKey: string, cacheName: string) {
-  if (!apiKey || !cacheName) return;
-
-  logger.debug({ cacheName }, "Deleting expired/invalid cache from remote");
-  try {
-    const url = `${env.GEMINI_BASE_URL}/v1beta/${cacheName}?key=${apiKey}`;
-    await fetchFn(url, {
-      method: "DELETE",
-      signal: createTimeoutSignal(10000),
-    });
-  } catch (error) {
-    logger.warn({ err: error, cacheName }, "Failed to delete remote cache");
-  }
-}
-
-async function cleanupExpiredCaches(): Promise<void> {
-  const now = Date.now();
-  let removed = 0;
-
-  for (const [key, entry] of cacheRegistry.entries()) {
-    if (entry.expiresAt <= now) {
-      await deleteRemoteCache(entry.apiKey, entry.name);
-      cacheRegistry.delete(key);
-      removed++;
-    }
-  }
-
-  if (removed > 0) {
-    logger.debug(
-      { removed, remaining: cacheRegistry.size },
-      "Cleaned up expired cache entries"
-    );
-  }
-}
-
-setInterval(cleanupExpiredCaches, 10 * 60 * 1000);
+// --- getOrCreateCache removed ---
+// --- deleteRemoteCache removed ---
+// --- cleanupExpiredCaches removed ---
+// --- setInterval removed ---
 
 // ##################################################################
 // UTILITY FUNCTIONS
 // ##################################################################
 
+/**
+ * Builds the request payload.
+ * The full prompt is now ALWAYS sent as the first user message.
+ */
 function buildRequestPayload(
-  fallbackPrompt: string | null,
-  history: HistoryEntry[],
-  cacheName: string | null
+  fullPrompt: string | null,
+  history: HistoryEntry[]
 ): GenerateContentPayload {
-  // CRITICAL FIX: Send system prompt as first message instead of systemInstruction
-  // This makes Gemini follow instructions better
   const contents: GeminiContent[] = [];
 
-  // If we have a prompt and no cache, add it as the first user message
-  if (fallbackPrompt && !cacheName) {
+  // If we have a prompt, add it as the first user message
+  if (fullPrompt) {
     contents.push({
       role: "user",
-      parts: [{ text: fallbackPrompt }],
+      parts: [{ text: fullPrompt }],
     });
     
     // Add a model acknowledgment to establish the instruction
@@ -401,14 +197,8 @@ function buildRequestPayload(
     });
   }
 
-  const payload: GenerateContentPayload = { contents };
-
-  // If using cache, reference it
-  if (cacheName) {
-    payload.cachedContent = cacheName;
-  }
-
-  return payload;
+  // No cacheName or system_instruction is added
+  return { contents };
 }
 
 /**
@@ -443,11 +233,11 @@ ${exampleList}
 3. **AVOID REPETITIONS**: 
 
 4. **WHAT TO LEARN**:
-   ✅ Casual/friendly tone
-   ✅ Use of slang in appropriate contexts
-   ✅ Emoji frequency and types
-   ✅ Short message style
-   ✅ Teasing/sarcastic humor
+    ✅ Casual/friendly tone
+    ✅ Use of slang in appropriate contexts
+    ✅ Emoji frequency and types
+    ✅ Short message style
+    ✅ Teasing/sarcastic humor
 
 5. **LOGICAL RESPONSES REQUIRED**: Always give contextually appropriate, forward-moving responses. If the conversation is stuck or repetitive, change the topic or ask a new question.
 
@@ -503,15 +293,7 @@ function sanitizeHistory(history: HistoryEntry[]): SanitizedHistoryResult {
   return { history: limited.reverse(), truncated, totalChars: total };
 }
 
-function hashString(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash).toString(36);
-}
+// --- hashString function removed (was only for caching) ---
 
 function isTimeoutError(error: unknown): boolean {
   if (!error) return false;
