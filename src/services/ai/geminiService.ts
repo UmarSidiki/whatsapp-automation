@@ -9,14 +9,12 @@ const MAX_PROMPT_CHARS = 6000;
 
 // Context caching configuration
 const CACHE_TTL_SECONDS = 7200; // 2 hours
-// FIX: Set to the correct minimum for modern Flash models
-const MIN_TOKENS_FOR_CACHING = 2048;
+const MIN_TOKENS_FOR_CACHING = 2048; // Correct minimum for modern Flash models
 
 // ##################################################################
 // TYPE DEFINITIONS
 // ##################################################################
 
-// FIX: Define types to replace 'any'
 interface GenerateReplyParams {
   apiKey: string;
   model: string;
@@ -25,13 +23,14 @@ interface GenerateReplyParams {
   contactId: string;
 }
 
-interface HistoryEntry {
-  role: "user" | "assistant"; // Use 'assistant' for your internal representation
+export interface HistoryEntry {
+  // Exported for messageHandler
+  role: "user" | "assistant";
   text: string;
 }
 
 interface SanitizedHistoryResult {
-  history: { role: "user" | "assistant"; text: string }[];
+  history: HistoryEntry[];
   truncated: boolean;
   totalChars: number;
 }
@@ -64,12 +63,8 @@ interface CreateCachePayload {
   ttl: string;
 }
 
-// FIX: Use the specific CacheEntry type
 const cacheRegistry = new Map<string, CacheEntry>();
 
-// --- MEMORY OPTIMIZATION: Contact ID Mapping ---
-// Map long contact IDs to short numeric IDs to save memory in cache keys
-// Saves ~8-10KB per 100 contacts
 const contactIdMap = new Map<string, number>();
 let nextContactId = 1;
 
@@ -79,14 +74,12 @@ function getNumericContactId(contactId: string): number {
   }
   return contactIdMap.get(contactId)!;
 }
-// --- END OPTIMIZATION ---
 
 // ##################################################################
 // MAIN REPLY FUNCTION
 // ##################################################################
 
 async function generateReply(
-  // FIX: Use the new interface
   {
     apiKey,
     model,
@@ -94,7 +87,7 @@ async function generateReply(
     loadPersonaExamples,
     contactId,
   }: GenerateReplyParams,
-  history: HistoryEntry[] // FIX: Use HistoryEntry type
+  history: HistoryEntry[]
 ) {
   const key = String(apiKey || "").trim();
   const modelName = String(model || "").trim();
@@ -103,7 +96,6 @@ async function generateReply(
   const messages = Array.isArray(history) ? history : [];
   if (!messages.length) return null;
 
-  // 1. Sanitize the incoming chat history
   const {
     history: sanitizedHistory,
     truncated: historyTruncated,
@@ -117,12 +109,6 @@ async function generateReply(
   let isCached = false;
   let cacheKey: string | null = null;
 
-  // --- MEMORY OPTIMIZATION: Check cache first, only load persona if needed ---
-  // First, check if we have a valid cache without loading persona examples
-  // This saves 15-20MB/hour by avoiding unnecessary DB queries
-  
-  // Try to find existing cache by checking all cache keys for this contact
-  // Use numeric ID for efficient lookup
   const numericId = getNumericContactId(contactId);
   let existingCache: CacheEntry | null = null;
   for (const [key, entry] of cacheRegistry.entries()) {
@@ -134,19 +120,17 @@ async function generateReply(
   }
 
   if (existingCache) {
-    // 2a. Cache hit - use cached content without loading persona
     payload = buildRequestPayload(null, sanitizedHistory, existingCache.name);
     isCached = true;
-    
+
     logger.debug(
       { contactId, cacheKey, expiresAt: existingCache.expiresAt },
       "Using existing cache, skipping persona load"
     );
   } else {
-    // 2b. No cache - load persona examples and decide on caching
     const personaExamples = await loadPersonaExamples();
-    const personaText = buildPersonaPrompt(personaExamples);
-    
+    const personaText = buildPersonaPrompt(personaExamples); // <-- This is the only change in this block
+
     const estimatedTokens = Math.floor(
       (personaText.length + staticSystemPrompt.length) / 4
     );
@@ -157,8 +141,6 @@ async function generateReply(
       contactId &&
       estimatedTokens >= MIN_TOKENS_FOR_CACHING
     ) {
-      // 3a. Caching Path - create new cache
-      // Use numeric ID to save memory
       cacheKey = `${getNumericContactId(contactId)}_${hashString(personaText)}`;
       const cachedContent = await getOrCreateCache(
         key,
@@ -169,7 +151,11 @@ async function generateReply(
       );
 
       if (cachedContent) {
-        payload = buildRequestPayload(null, sanitizedHistory, cachedContent.name);
+        payload = buildRequestPayload(
+          null,
+          sanitizedHistory,
+          cachedContent.name
+        );
         isCached = true;
       } else {
         const fullPrompt =
@@ -177,13 +163,13 @@ async function generateReply(
         payload = buildRequestPayload(fullPrompt, sanitizedHistory, null);
       }
     } else {
-      // 3b. Non-Caching Path - use full prompt
+      // Non-caching path: Build the full prompt for system_instruction
+      // We STILL use the new personaText format here
       const fullPrompt =
         (staticSystemPrompt ? `${staticSystemPrompt}\n\n` : "") + personaText;
       payload = buildRequestPayload(fullPrompt, sanitizedHistory, null);
     }
   }
-  // --- END OPTIMIZATION ---
 
   if (!payload.contents.length) {
     return null;
@@ -204,8 +190,7 @@ async function generateReply(
 
   const url = `${env.GEMINI_BASE_URL}/v1beta/models/${modelName}:generateContent?key=${key}`;
 
-  // 5. Make API Call
-  let response: Response; // FIX: Use the built-in 'Response' type
+  let response: Response;
   try {
     response = await fetchFn(url, {
       method: "POST",
@@ -221,15 +206,13 @@ async function generateReply(
     throw error;
   }
 
-  // 6. Handle Response
   if (!response.ok) {
-    // FIX: Define errorPayload as a potential object
     const errorPayload: { error?: { message?: string } } | null = await response
       .clone()
       .json()
       .catch(() => null);
     const error = new Error(`Gemini API responded with ${response.status}`);
-    (error as any).statusCode = response.status; // Keeping 'any' here is acceptable for custom error props
+    (error as any).statusCode = response.status;
     (error as any).payload = errorPayload;
 
     if (response.status === 503) {
@@ -243,7 +226,6 @@ async function generateReply(
       );
     }
 
-    // This block now works because cacheKey is in scope
     if (errorPayload?.error?.message?.includes("CachedContent not found")) {
       logger.warn(
         { cacheKey },
@@ -255,7 +237,6 @@ async function generateReply(
     throw error;
   }
 
-  // FIX: Define 'data' structure
   const data: {
     candidates?: [{ content?: { parts?: [{ text?: string }] } }];
   } = await response.json();
@@ -274,7 +255,6 @@ async function getOrCreateCache(
   personaText: string,
   cacheKey: string
 ): Promise<CacheEntry | null> {
-  // FIX: Use specific return type
   const existing = cacheRegistry.get(cacheKey);
   if (existing && existing.expiresAt > Date.now()) {
     return existing;
@@ -285,16 +265,18 @@ async function getOrCreateCache(
   }
 
   try {
+    // **** THIS PAYLOAD IS NOW CORRECT ****
+    // systemInstruction = The Urdu Prompt
+    // contents = The raw persona examples
     const cachePayload: CreateCachePayload = {
-      // FIX: Use specific payload type
       model: `models/${model}`,
       systemInstruction: {
         parts: [{ text: systemPrompt || "" }],
       },
       contents: [
         {
-          role: "user",
-          parts: [{ text: personaText }],
+          role: "user", // "user" role is fine, it's just a container for the text
+          parts: [{ text: personaText }], // Pass the block of examples
         },
       ],
       ttl: `${CACHE_TTL_SECONDS}s`,
@@ -317,9 +299,8 @@ async function getOrCreateCache(
       return null;
     }
 
-    const data: { name: string } = await response.json(); // FIX: Define data structure
+    const data: { name: string } = await response.json();
     const cacheEntry: CacheEntry = {
-      // FIX: Use specific type
       name: data.name,
       expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000,
       apiKey: apiKey,
@@ -384,10 +365,9 @@ setInterval(cleanupExpiredCaches, 10 * 60 * 1000);
 
 function buildRequestPayload(
   fallbackPrompt: string | null,
-  history: HistoryEntry[], // FIX: Use specific type
+  history: HistoryEntry[],
   cacheName: string | null
 ): GenerateContentPayload {
-  // FIX: Use specific return type
   const contents: GeminiContent[] = history.map((entry) => ({
     role: entry.role === "assistant" ? "model" : "user",
     parts: [{ text: entry.text }],
@@ -406,33 +386,41 @@ function buildRequestPayload(
   return payload;
 }
 
+// **** ⬇️ CRITICAL FIX IS HERE ⬇️ ****
+/**
+ * Builds the "persona" prompt text from examples.
+ * This new version removes all instructions and formats the examples
+ * as a raw block of text for the model to learn from.
+ */
 function buildPersonaPrompt(examples: string[]): string {
+  if (!examples || examples.length === 0) {
+    return "";
+  }
+
+  // 1. Filter and join all messages with a neutral separator.
+  // This stops the model from thinking it's a Q&A list.
   const exampleList = examples
     .filter((msg) => msg && msg.trim())
-    .map((msg, index) => `Example ${index + 1}:\n${msg.trim()}`)
-    .join("\n\n");
+    .join("\n---\n"); // Using a separator helps distinguish messages
 
-  if (!exampleList) return "";
+  if (!exampleList) {
+    return "";
+  }
 
-  // ... (persona prompt text is fine)
-  return `IMPORTANT: Learn and mimic my writing style from these examples of how I respond to different messages:
-
+  // 2. Simply frame the text as data.
+  // Your MAIN system prompt (the Urdu one) already tells the model
+  // "from example only learn typing and writing style".
+  // This new format provides the data for that instruction.
+  return `
+[START OF UMAR'S STYLE EXAMPLES]
 ${exampleList}
-
-Analyze and match my:
-- Tone (casual/formal/friendly) based on context
-- Sentence structure and length
-- Use of punctuation and emojis
-- Vocabulary and phrases
-- Level of detail in responses
-- How I adapt my style to different types of messages
-
-Reply naturally as if you were me, maintaining consistency with my communication style and adapting appropriately to the user's message.`;
+[END OF UMAR'S STYLE EXAMPLES]
+`;
 }
+// **** ⬆️ CRITICAL FIX IS HERE ⬆️ ****
 
 function sanitizeHistory(history: HistoryEntry[]): SanitizedHistoryResult {
-  // FIX: Use types
-  const sanitized: HistoryEntry[] = []; // FIX: Use type
+  const sanitized: HistoryEntry[] = [];
   let truncated = false;
 
   for (const entry of history) {
@@ -454,7 +442,7 @@ function sanitizeHistory(history: HistoryEntry[]): SanitizedHistoryResult {
     return { history: [], truncated: false, totalChars: 0 };
   }
 
-  const limited: HistoryEntry[] = []; // FIX: Use type
+  const limited: HistoryEntry[] = [];
   let total = 0;
   for (let i = sanitized.length - 1; i >= 0; i--) {
     const current = sanitized[i];
@@ -490,9 +478,7 @@ function hashString(str: string): string {
 }
 
 function isTimeoutError(error: unknown): boolean {
-  // FIX: Use 'unknown' instead of 'any'
   if (!error) return false;
-  // Type assertion to check for properties
   const err = error as {
     name?: string;
     type?: string;
@@ -507,5 +493,4 @@ function isTimeoutError(error: unknown): boolean {
   return false;
 }
 
-// FIX: Remove unused export
 export { generateReply };
