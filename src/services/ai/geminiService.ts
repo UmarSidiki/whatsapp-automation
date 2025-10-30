@@ -386,38 +386,49 @@ function buildRequestPayload(
   return payload;
 }
 
-// **** ⬇️ CRITICAL FIX IS HERE ⬇️ ****
 /**
  * Builds the "persona" prompt text from examples.
- * This new version removes all instructions and formats the examples
- * as a raw block of text for the model to learn from.
+ * CRITICAL: Emphasizes learning STYLE, not copying CONTENT
  */
 function buildPersonaPrompt(examples: string[]): string {
   if (!examples || examples.length === 0) {
     return "";
   }
 
-  // 1. Filter and join all messages with a neutral separator.
-  // This stops the model from thinking it's a Q&A list.
   const exampleList = examples
     .filter((msg) => msg && msg.trim())
-    .join("\n---\n"); // Using a separator helps distinguish messages
+    .join("\n---\n");
 
   if (!exampleList) {
     return "";
   }
 
-  // 2. Simply frame the text as data.
-  // Your MAIN system prompt (the Urdu one) already tells the model
-  // "from example only learn typing and writing style".
-  // This new format provides the data for that instruction.
+  // CRITICAL FIX: Add strong anti-repetition instructions
   return `
-[START OF UMAR'S STYLE EXAMPLES]
+[START OF USER'S STYLE EXAMPLES]
 ${exampleList}
-[END OF UMAR'S STYLE EXAMPLES]
+[END OF USER'S STYLE EXAMPLES]
+
+**⚠️ CRITICAL INSTRUCTIONS FOR USING THESE EXAMPLES:**
+
+1. **LEARN STYLE, NOT CONTENT**: These examples show HOW USER writes (tone, slang, emoji usage, sentence structure), NOT WHAT to say.
+
+2. **NEVER COPY PHRASES**: Do NOT repeat any specific phrases, questions, or responses from these examples. Each reply must be 100% ORIGINAL and contextually relevant to the current conversation.
+
+3. **AVOID REPETITIONS**: 
+
+4. **WHAT TO LEARN**:
+   ✅ Casual/friendly tone
+   ✅ Use of slang in appropriate contexts
+   ✅ Emoji frequency and types
+   ✅ Short message style
+   ✅ Teasing/sarcastic humor
+
+5. **LOGICAL RESPONSES REQUIRED**: Always give contextually appropriate, forward-moving responses. If the conversation is stuck or repetitive, change the topic or ask a new question.
+
+**Remember: You are learning USER's COMMUNICATION STYLE, not memorizing his responses. Generate ORIGINAL replies that SOUND like USER but are UNIQUE to the current conversation.**
 `;
 }
-// **** ⬆️ CRITICAL FIX IS HERE ⬆️ ****
 
 function sanitizeHistory(history: HistoryEntry[]): SanitizedHistoryResult {
   const sanitized: HistoryEntry[] = [];
