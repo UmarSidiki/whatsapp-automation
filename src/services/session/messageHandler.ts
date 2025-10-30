@@ -583,7 +583,9 @@ function registerMessageHandlers(code: string, state: any) {
             const current = chatMessages[i].message;
             const next = chatMessages[i + 1].message;
 
-            // Find pairs where user message is followed by my reply
+            // --- FIX: Filter out AI-generated replies ---
+            // Find pairs where user message is followed by MY HUMAN reply (not AI reply)
+            // This prevents the AI from learning from its own responses
             if (current.startsWith("User: ") && next.startsWith("My reply: ")) {
               const userMsg = current.replace("User: ", "");
               const myReply = next.replace("My reply: ", "");
@@ -591,6 +593,8 @@ function registerMessageHandlers(code: string, state: any) {
                 `User said: "${userMsg}"\nI replied: "${myReply}"`
               );
             }
+            // Skip "AI reply:" messages - they should not be used for persona learning
+            // --- END FIX ---
           }
 
           personaExamples = conversationPairs.slice(-contextWindow);
@@ -609,7 +613,14 @@ function registerMessageHandlers(code: string, state: any) {
         } else {
           // Use universal persona for new/small chats (already just your replies)
           const universalMessages = await getUniversalPersona(code);
-          personaExamples = universalMessages.slice(-contextWindow);
+
+          // --- FIX: Additional safety filter to exclude AI-generated messages ---
+          // Filter out any "AI reply:" messages that might have been stored
+          const humanRepliesOnly = universalMessages.filter(
+            (msg) => !msg.startsWith("AI reply:")
+          );
+          personaExamples = humanRepliesOnly.slice(-contextWindow);
+          // --- END FIX ---
 
           logger.debug(
             {

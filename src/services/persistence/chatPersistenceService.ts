@@ -411,12 +411,15 @@ export async function getChatMessages(
   const doc = await contacts.findOne({ sessionCode, contactId });
   if (!doc || !Array.isArray(doc.messages)) return [];
 
+  // --- FIX: Filter out AI-generated messages from persona learning ---
+  // Only return messages that are NOT AI-generated
   return doc.messages
     .map((e: any) => ({
       message: String(e.message ?? ""),
       timestamp: new Date(e.timestamp),
     }))
-    .filter((e) => e.message);
+    .filter((e) => e.message && !e.message.startsWith(STRING_POOL.AI_REPLY_PREFIX));
+  // --- END FIX ---
 }
 
 export async function getUniversalPersona(
@@ -430,7 +433,12 @@ export async function getUniversalPersona(
   const doc = await universal.findOne({ sessionCode });
   if (!doc || !Array.isArray(doc.messages)) return [];
 
-  return doc.messages as string[];
+  // --- FIX: Filter out AI-generated messages from universal persona ---
+  // Only return human-written messages for persona learning
+  return (doc.messages as string[]).filter(
+    (msg) => !msg.startsWith(STRING_POOL.AI_REPLY_PREFIX)
+  );
+  // --- END FIX ---
 }
 
 /* -------------------------------------------------------------------------- */
