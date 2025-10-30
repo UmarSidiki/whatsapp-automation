@@ -265,18 +265,25 @@ async function getOrCreateCache(
   }
 
   try {
-    // **** THIS PAYLOAD IS NOW CORRECT ****
-    // systemInstruction = The Urdu Prompt
-    // contents = The raw persona examples
+    // CRITICAL FIX: Use message-based approach for cache too
+    // Send prompt as conversation instead of systemInstruction
+    const fullPrompt = systemPrompt 
+      ? `${systemPrompt}\n\n${personaText}`
+      : personaText;
+
     const cachePayload: CreateCachePayload = {
       model: `models/${model}`,
       systemInstruction: {
-        parts: [{ text: systemPrompt || "" }],
+        parts: [{ text: "" }], // Empty system instruction
       },
       contents: [
         {
-          role: "user", // "user" role is fine, it's just a container for the text
-          parts: [{ text: personaText }], // Pass the block of examples
+          role: "user",
+          parts: [{ text: fullPrompt }],
+        },
+        {
+          role: "model",
+          parts: [{ text: "Understood. I will follow these instructions and reply in the specified style." }],
         },
       ],
       ttl: `${CACHE_TTL_SECONDS}s`,
@@ -368,19 +375,37 @@ function buildRequestPayload(
   history: HistoryEntry[],
   cacheName: string | null
 ): GenerateContentPayload {
-  const contents: GeminiContent[] = history.map((entry) => ({
-    role: entry.role === "assistant" ? "model" : "user",
-    parts: [{ text: entry.text }],
-  }));
+  // CRITICAL FIX: Send system prompt as first message instead of systemInstruction
+  // This makes Gemini follow instructions better
+  const contents: GeminiContent[] = [];
+
+  // If we have a prompt and no cache, add it as the first user message
+  if (fallbackPrompt && !cacheName) {
+    contents.push({
+      role: "user",
+      parts: [{ text: fallbackPrompt }],
+    });
+    
+    // Add a model acknowledgment to establish the instruction
+    contents.push({
+      role: "model",
+      parts: [{ text: "Understood. I will follow these instructions and reply in the specified style." }],
+    });
+  }
+
+  // Add conversation history
+  for (const entry of history) {
+    contents.push({
+      role: entry.role === "assistant" ? "model" : "user",
+      parts: [{ text: entry.text }],
+    });
+  }
 
   const payload: GenerateContentPayload = { contents };
 
+  // If using cache, reference it
   if (cacheName) {
     payload.cachedContent = cacheName;
-  } else if (fallbackPrompt) {
-    payload.system_instruction = {
-      parts: [{ text: fallbackPrompt }],
-    };
   }
 
   return payload;
