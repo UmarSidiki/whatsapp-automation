@@ -9,6 +9,95 @@ const STOP_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MESSAGE_TIMESTAMP_TOLERANCE_MS = 30_000; // 30s for clock skew tolerance
 
 /**
+ * Imports chat history from WhatsApp to build persona data
+ * Fetches last 1000 messages and saves them to database
+ * @returns Number of messages imported
+ */
+async function importChatHistoryToPersona(
+  client: any,
+  sessionCode: string,
+  contactId: string,
+  currentCount: number
+): Promise<number> {
+  try {
+    // Fetch chat history from WhatsApp (last 1000 messages)
+    const chat = await client.getChatById(contactId);
+    if (!chat) {
+      logger.warn({ sessionCode, contactId }, "Chat not found in WhatsApp");
+      return 0;
+    }
+
+    // Fetch messages (limit to 1000)
+    const messages = await chat.fetchMessages({ limit: 1000 });
+    if (!messages || messages.length === 0) {
+      logger.info({ sessionCode, contactId }, "No messages found in WhatsApp chat");
+      return 0;
+    }
+
+    logger.info(
+      { sessionCode, contactId, fetchedCount: messages.length },
+      "Fetched messages from WhatsApp chat"
+    );
+
+    // Process and save messages
+    let importedCount = 0;
+    const { queueMessageForPersistence } = await import(
+      "../persistence/chatPersistenceService"
+    );
+
+    // Process messages in chronological order (oldest first)
+    for (const msg of messages.reverse()) {
+      try {
+        // Skip media messages
+        if (msg.hasMedia || msg.isMedia) continue;
+
+        // Skip empty messages
+        const text = msg.body?.trim();
+        if (!text) continue;
+
+        // Determine direction and if it's from bot
+        const isFromBot = msg.fromMe;
+        const direction = isFromBot ? "outgoing" : "incoming";
+
+        // Save to database (mark as human-written, not AI-generated)
+        queueMessageForPersistence({
+          sessionCode,
+          contactId,
+          direction,
+          message: text,
+          timestamp: new Date(msg.timestamp * 1000),
+          isAiGenerated: false, // All imported messages are human-written
+        });
+
+        importedCount++;
+      } catch (msgError) {
+        logger.debug(
+          { err: msgError, sessionCode, contactId },
+          "Failed to process individual message during import"
+        );
+        // Continue with next message
+      }
+    }
+
+    // Flush messages to database
+    if (importedCount > 0) {
+      const { flushQueuedMessages } = await import(
+        "../persistence/chatPersistenceService"
+      );
+      await flushQueuedMessages();
+    }
+
+    return importedCount;
+  } catch (error) {
+    logger.error(
+      { err: error, sessionCode, contactId },
+      "Failed to import chat history"
+    );
+    throw error;
+  }
+}
+
+/**
  * Check if a message is from the bot owner
  * According to WPPConnect, the bot's own number can be detected differently
  */
@@ -570,7 +659,40 @@ function registerMessageHandlers(code: string, state: any) {
         const { getChatMessages, getUniversalPersona } = await import(
           "../persistence/chatPersistenceService"
         );
-        const chatMessages = await getChatMessages(code, chatId);
+        let chatMessages = await getChatMessages(code, chatId);
+
+        // --- NEW FEATURE: Auto-build persona from WhatsApp chat history ---
+        // If we have less than 250 messages in database, try to fetch from WhatsApp
+        if (chatMessages.length < 250 && current.client) {
+          try {
+            logger.info(
+              { code, chatId, currentCount: chatMessages.length },
+              "Attempting to build persona from WhatsApp chat history"
+            );
+            
+            const importedCount = await importChatHistoryToPersona(
+              current.client,
+              code,
+              chatId,
+              chatMessages.length
+            );
+            
+            if (importedCount > 0) {
+              // Reload messages after import
+              chatMessages = await getChatMessages(code, chatId);
+              logger.info(
+                { code, chatId, imported: importedCount, total: chatMessages.length },
+                "Successfully imported chat history to persona"
+              );
+            }
+          } catch (error) {
+            logger.warn(
+              { err: error, code, chatId },
+              "Failed to import chat history, continuing with existing data"
+            );
+          }
+        }
+        // --- END NEW FEATURE ---
 
         let personaExamples: string[] = [];
 
