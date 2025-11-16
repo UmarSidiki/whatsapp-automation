@@ -343,6 +343,7 @@ function registerMessageHandlers(code: string, state: SessionState) {
 
     const textFromBody = typeof msg.body === "string" ? msg.body.trim() : "";
     const aiUtilityCommand = detectAiUtilityCommand(textFromBody, msg);
+    const isUtilityCommand = Boolean(aiUtilityCommand);
 
     if (msg.fromMe) {
       const isVoiceMessage = msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
@@ -354,12 +355,12 @@ function registerMessageHandlers(code: string, state: SessionState) {
       return;
     }
 
-    if (current.globalStop.active && !isBotOwner(msg, code) && !aiUtilityCommand) {
+    if (current.globalStop.active && !isBotOwner(msg, code) && !isUtilityCommand) {
       return;
     }
 
     const stopTime = current.stopList.get(chatId);
-    if (stopTime && Date.now() - stopTime < STOP_TIMEOUT_MS) {
+    if (stopTime && Date.now() - stopTime < STOP_TIMEOUT_MS && !isUtilityCommand) {
       return;
     } else if (stopTime) {
       current.stopList.delete(chatId);
@@ -564,7 +565,7 @@ function registerMessageHandlers(code: string, state: SessionState) {
       return;
     }
 
-    if (!config.autoReplyEnabled && !aiUtilityCommand) {
+    if (!config.autoReplyEnabled && !isUtilityCommand) {
       return;
     }
 
