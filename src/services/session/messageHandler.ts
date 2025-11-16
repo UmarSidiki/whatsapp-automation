@@ -345,7 +345,7 @@ function registerMessageHandlers(code: string, state: SessionState) {
     const aiUtilityCommand = detectAiUtilityCommand(textFromBody, msg);
     const isUtilityCommand = Boolean(aiUtilityCommand);
 
-    if (msg.fromMe) {
+    if (msg.fromMe && !isUtilityCommand) {
       const isVoiceMessage = msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
       const hasMedia = msg.hasMedia || msg.isMedia || isVoiceMessage;
       if (textFromBody && !hasMedia) {
