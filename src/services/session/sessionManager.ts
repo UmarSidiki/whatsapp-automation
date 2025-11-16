@@ -21,7 +21,6 @@ let whatsappDeps = null;
 // --- MEMORY LEAK FIX ---
 // Session health check to remove stale/failed sessions
 const SESSION_HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-const SESSION_MAX_IDLE_MS = 24 * 60 * 60 * 1000; // 24 hours
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 function startSessionHealthCheck(): void {
@@ -42,7 +41,7 @@ function startSessionHealthCheck(): void {
         // Remove sessions that have been idle for too long and never authenticated
         if (!session.hasBeenAuthenticated && !session.ready) {
           const idleTime = now - session.startedAt;
-          if (idleTime > SESSION_MAX_IDLE_MS) {
+          if (idleTime > env.sessionMaxIdleMs) {
             staleSessions.push(code);
             logger.warn(
               { code, idleTimeHours: Math.round(idleTime / 3600000) },

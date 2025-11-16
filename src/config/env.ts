@@ -27,6 +27,7 @@ const EnvSchema = z
     AUTO_RESTORE_SESSIONS: z.string().optional(),
     SESSION_RESTORE_THROTTLE_MS: z.coerce.number().optional(),
     SESSION_READY_TIMEOUT_MS: z.coerce.number().default(30000),
+    SESSION_MAX_IDLE_HOURS: z.coerce.number().optional(),
     MONGO_URI: z.string().min(10, "MONGO_URI is required"),
     MONGO_DB_NAME: z.string().min(1, "MONGO_DB_NAME is required"),
   })
@@ -54,6 +55,7 @@ const EnvSchema = z
       data.SESSION_RESTORE_THROTTLE_MS || 1000,
       0
     ),
+    sessionMaxIdleMs: (data.SESSION_MAX_IDLE_HOURS || 24) * 60 * 60 * 1000,
   }));
 
 const env = EnvSchema.parse(process.env);

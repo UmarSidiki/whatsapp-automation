@@ -341,17 +341,20 @@ function registerMessageHandlers(code: string, state: SessionState) {
       return;
     }
 
+    const textFromBody = typeof msg.body === "string" ? msg.body.trim() : "";
+    const aiUtilityCommand = detectAiUtilityCommand(textFromBody, msg);
+
     if (msg.fromMe) {
-      const text = typeof msg.body === "string" ? msg.body.trim() : "";
+      const isVoiceMessage = msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
       const hasMedia = msg.hasMedia || msg.isMedia || isVoiceMessage;
-      if (text && !hasMedia) {
-        appendHistoryEntry(current, chatId, { role: "assistant", text });
-        persistChatMessage(code, chatId, "outgoing", text, false);
+      if (textFromBody && !hasMedia) {
+        appendHistoryEntry(current, chatId, { role: "assistant", text: textFromBody });
+        persistChatMessage(code, chatId, "outgoing", textFromBody, false);
       }
       return;
     }
 
-    if (current.globalStop.active && !isBotOwner(msg, code)) {
+    if (current.globalStop.active && !isBotOwner(msg, code) && !aiUtilityCommand) {
       return;
     }
 
@@ -363,7 +366,6 @@ function registerMessageHandlers(code: string, state: SessionState) {
     }
 
     let text = "";
-    let aiUtilityCommand: AiUtilityCommand | null = null;
 
     if (isVoiceMessage && config?.voiceReplyEnabled && config?.speechToTextApiKey) {
       const messageAgeMs = Date.now() - messageTimestampMs;
@@ -467,6 +469,7 @@ function registerMessageHandlers(code: string, state: SessionState) {
           );
           await safeReply(
             state.client,
+            
             msg,
             "🎤 Sorry, I couldn't understand your voice message. Please try speaking more clearly or send text.",
             false
@@ -509,7 +512,6 @@ function registerMessageHandlers(code: string, state: SessionState) {
       if (!text) return;
     }
 
-    aiUtilityCommand = detectAiUtilityCommand(text, msg);
     if (aiUtilityCommand) {
       logger.debug(
         {
