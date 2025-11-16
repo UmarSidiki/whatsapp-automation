@@ -77,4 +77,9 @@ declare module "../controllers/messageController" {
   export default _default;
 }
 
+declare module "emoji-regex" {
+  function emojiRegex(): RegExp;
+  export default emojiRegex;
+}
+
 /* eslint-enable @typescript-eslint/no-explicit-any */

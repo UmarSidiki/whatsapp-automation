@@ -1,6 +1,11 @@
 import logger from "../../config/logger";
 import { connectMongo, getCollection } from "../database/mongoService";
 import type { Collection, Document } from "mongodb";
+import {
+  AI_REPLY_PREFIX,
+  HUMAN_REPLY_PREFIX,
+  USER_MESSAGE_PREFIX,
+} from "../../types/persona";
 
 export const MAX_MESSAGES_PER_CONTACT = 1000;
 const FLUSH_INTERVAL_MS = 30_000;
@@ -11,9 +16,9 @@ const MAX_TOTAL_BUFFER_SIZE = 10000; // Global limit across all contacts to prev
 // Reuse string constants instead of creating new ones for each message
 // Saves ~800KB for 100 contacts with 1000 messages each
 const STRING_POOL = {
-  USER_PREFIX: "User: ",
-  MY_REPLY_PREFIX: "My reply: ",
-  AI_REPLY_PREFIX: "AI reply: ",
+  USER_PREFIX: USER_MESSAGE_PREFIX,
+  MY_REPLY_PREFIX: HUMAN_REPLY_PREFIX,
+  AI_REPLY_PREFIX,
 } as const;
 // --- END OPTIMIZATION ---
 

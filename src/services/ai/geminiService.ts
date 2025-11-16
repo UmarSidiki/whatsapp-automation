@@ -3,6 +3,7 @@
 import env from "../../config/env";
 import logger from "../../config/logger";
 import { fetchFn, createTimeoutSignal } from "../../utils/http";
+import type { PersonaProfile } from "../../types/persona";
 
 const MAX_MESSAGE_LENGTH = 10000;
 const MAX_PROMPT_CHARS = 250000;
@@ -15,7 +16,7 @@ interface GenerateReplyParams {
   apiKey: string;
   model: string;
   systemPrompt: string;
-  loadPersonaExamples: () => Promise<string[]>;
+  loadPersonaProfile: () => Promise<PersonaProfile>;
   contactId: string;
 }
 
@@ -51,7 +52,7 @@ async function generateReply(
     apiKey,
     model,
     systemPrompt,
-    loadPersonaExamples,
+    loadPersonaProfile,
     contactId, // Used for logging
   }: GenerateReplyParams,
   history: HistoryEntry[]
@@ -75,8 +76,8 @@ async function generateReply(
   // --- Caching logic removed ---
   // We now always build the full prompt every time.
 
-  const personaExamples = await loadPersonaExamples();
-  const personaText = buildPersonaPrompt(personaExamples);
+  const personaProfile = await loadPersonaProfile();
+  const personaText = buildPersonaPrompt(personaProfile);
 
   // Build the full prompt to be sent as the first user message
   const fullPrompt =
@@ -205,44 +206,46 @@ function buildRequestPayload(
  * Builds the "persona" prompt text from examples.
  * CRITICAL: Emphasizes learning STYLE, not copying CONTENT
  */
-function buildPersonaPrompt(examples: string[]): string {
-  if (!examples || examples.length === 0) {
-    return "";
+function buildPersonaPrompt(profile?: PersonaProfile | null): string {
+  if (!profile) {
+    return `You are replying on behalf of the WhatsApp account owner. Keep responses concise, human, and professional.`;
   }
 
-  const exampleList = examples
-    .filter((msg) => msg && msg.trim())
-    .join("\n---\n");
+  const guidelines = (profile.guidelines || []).length
+    ? profile.guidelines
+        .map((line, index) => `${index + 1}. ${line}`)
+        .join("\n")
+    : "1. Mirror the owner's tone.\n2. Keep replies concise and accurate.";
 
-  if (!exampleList) {
-    return "";
-  }
+  const examples = (profile.examples || []).length
+    ? profile.examples
+        .map((example, index) => {
+          const userLine = example.user
+            ? `User: ${example.user}`
+            : "User context: (not captured)";
+          return `Example ${index + 1}\n${userLine}\nOwner reply style: ${example.reply}`;
+        })
+        .join("\n\n")
+    : "No reference replies captured yet.";
 
-  // CRITICAL FIX: Add strong anti-repetition instructions
-  return `
-[START OF USER'S STYLE EXAMPLES]
-${exampleList}
-[END OF USER'S STYLE EXAMPLES]
+  const sourceLabel =
+    profile.source === "contact"
+      ? "contact-specific conversation"
+      : profile.source === "universal"
+      ? "overall account history"
+      : "default fallback profile";
 
-**⚠️ CRITICAL INSTRUCTIONS FOR USING THESE EXAMPLES:**
-
-1. **LEARN STYLE, NOT CONTENT**: These examples show HOW USER writes (tone, slang, emoji usage, sentence structure), NOT WHAT to say.
-
-2. **NEVER COPY PHRASES**: Do NOT repeat any specific phrases, questions, or responses from these examples. Each reply must be 100% ORIGINAL and contextually relevant to the current conversation.
-
-3. **AVOID REPETITIONS**: 
-
-4. **WHAT TO LEARN**:
-    ✅ Casual/friendly tone
-    ✅ Use of slang in appropriate contexts
-    ✅ Emoji frequency and types
-    ✅ Short message style
-    ✅ Teasing/sarcastic humor
-
-5. **LOGICAL RESPONSES REQUIRED**: Always give contextually appropriate, forward-moving responses. If the conversation is stuck or repetitive, change the topic or ask a new question.
-
-**Remember: You are learning USER's COMMUNICATION STYLE, not memorizing his responses. Generate ORIGINAL replies that SOUND like USER but are UNIQUE to the current conversation.**
-`;
+  return (
+    `You are composing WhatsApp replies as the human account owner.\n` +
+    `Persona source: ${sourceLabel}.\n\n` +
+    `Style summary:\n${profile.summary}\n\n` +
+    `Guidelines (follow all, do not repeat them verbatim):\n${guidelines}\n\n` +
+    `Reference exchanges (never reuse the exact wording):\n${examples}\n\n` +
+    `Instructions:\n` +
+    `- Base your response on the latest chat history provided after this message.\n` +
+    `- If information is missing, ask a short clarifying question instead of inventing details.\n` +
+    `- Keep replies human, warm, and error-free.`
+  ).trim();
 }
 
 function sanitizeHistory(history: HistoryEntry[]): SanitizedHistoryResult {

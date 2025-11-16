@@ -1,173 +1,227 @@
+import type { Message, Whatsapp } from "@wppconnect-team/wppconnect";
 import logger from "../../config/logger";
+import { STOP_TIMEOUT_MS } from "../../constants";
 import { generateReply } from "../ai/geminiService";
+import type { HistoryEntry } from "../ai/geminiService";
 import { transcribeAudio } from "../ai/speechToTextService";
+import {
+  buildPersonaProfile,
+  buildStandaloneExamples,
+  extractContactPersonaData,
+} from "./personaProfiler";
 import { appendHistoryEntry, persistChatMessage } from "./chatHistory";
 import { markChatUnread, safeReply, sendFragmentedReply } from "./utils";
 import { sessions } from "./sessionManager";
 
-const STOP_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
-const MESSAGE_TIMESTAMP_TOLERANCE_MS = 30_000; // 30s for clock skew tolerance
+const MESSAGE_TIMESTAMP_TOLERANCE_MS = 30_000; // tolerate clock skew for 30 seconds
+const PERSONA_IMPORT_TARGET = 1000;
+const MAX_HISTORY_IMPORT = 1000;
+const CONTACT_PERSONA_MIN_MESSAGES = 1000;
 
-/**
- * Imports chat history from WhatsApp to build persona data
- * Fetches last 1000 messages and saves them to database
- * @returns Number of messages imported
- */
+type CustomReplyMatch = "contains" | "exact" | "startsWith" | "regex";
+
+interface CustomReplyRule {
+  trigger: string;
+  response: string;
+  matchType?: CustomReplyMatch;
+  regex?: RegExp;
+}
+
+interface BulkMessagePayload {
+  numbers: string[];
+  message: string;
+}
+
+interface BulkSendResult {
+  number: string;
+  success: boolean;
+  error?: string;
+}
+
+interface VoiceConfig {
+  voiceReplyEnabled?: boolean;
+  speechToTextApiKey?: string;
+  textToSpeechApiKey?: string;
+  voiceLanguage?: string;
+  voiceGender?: string;
+}
+
+interface AiConfig extends VoiceConfig {
+  autoReplyEnabled: boolean;
+  apiKey?: string;
+  model?: string;
+  customReplies?: CustomReplyRule[];
+  contextWindow?: number;
+}
+
+interface SessionState {
+  client: Whatsapp | null;
+  ready: boolean;
+  startedAt?: number;
+  aiConfig: AiConfig | null;
+  globalStop: { active: boolean; since: number };
+  stopList: Map<string, number>;
+  botNumber?: string | null;
+}
+
+type ExtendedMessage = Message & {
+  session?: string;
+  hasMedia?: boolean;
+  isMedia?: boolean;
+  isPtt?: boolean;
+  mimetype?: string;
+  _data?: { t?: number };
+  id?: { id?: string; _serialized?: string };
+  quotedMsg?: (Message & { body?: string }) | null;
+};
+
+type AiUtilityMode = "explain" | "qa";
+
+interface AiUtilityCommand {
+  mode: AiUtilityMode;
+  rawPrompt: string;
+  normalizedPrompt: string;
+  referencedText?: string;
+}
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 async function importChatHistoryToPersona(
-  client: any,
+  client: Whatsapp | null,
   sessionCode: string,
   contactId: string,
   currentCount: number
 ): Promise<number> {
+  if (!client || !contactId) {
+    return 0;
+  }
+
+  const deficit = Math.max(0, PERSONA_IMPORT_TARGET - currentCount);
+  const fetchLimit = Math.min(MAX_HISTORY_IMPORT, Math.max(deficit, 0));
+  if (!fetchLimit) {
+    return 0;
+  }
+
   try {
-    // Fetch chat history from WhatsApp (last 1000 messages)
-    const chat = await client.getChatById(contactId);
-    if (!chat) {
-      logger.warn({ sessionCode, contactId }, "Chat not found in WhatsApp");
+    const clientAny = client as Whatsapp & { getChatById?: (id: string) => Promise<unknown> };
+    const rawChat = (await clientAny.getChatById?.(contactId)) as {
+      fetchMessages?: (opts: { limit: number }) => Promise<ExtendedMessage[]>;
+    } | null;
+    if (!rawChat || typeof rawChat.fetchMessages !== "function") {
+      logger.warn({ sessionCode, contactId }, "Chat not found in WhatsApp for persona import");
       return 0;
     }
 
-    // Fetch messages (limit to 1000)
-    const messages = await chat.fetchMessages({ limit: 1000 });
-    if (!messages || messages.length === 0) {
-      logger.info({ sessionCode, contactId }, "No messages found in WhatsApp chat");
+    const messages: ExtendedMessage[] = await rawChat.fetchMessages({ limit: fetchLimit });
+    if (!messages?.length) {
+      logger.info({ sessionCode, contactId }, "No messages returned from WhatsApp chat");
       return 0;
     }
 
-    logger.info(
-      { sessionCode, contactId, fetchedCount: messages.length },
-      "Fetched messages from WhatsApp chat"
-    );
-
-    // Process and save messages
-    let importedCount = 0;
-    const { queueMessageForPersistence } = await import(
+    const { queueMessageForPersistence, flushQueuedMessages } = await import(
       "../persistence/chatPersistenceService"
     );
 
-    // Process messages in chronological order (oldest first)
-    for (const msg of messages.reverse()) {
+    let importedCount = 0;
+    for (const message of messages.slice().reverse()) {
+      const text = typeof message.body === "string" ? message.body.trim() : "";
+      if (!text || message.hasMedia || message.isMedia) {
+        continue;
+      }
+
+      const timestampSeconds = typeof message.timestamp === "number" ? message.timestamp : 0;
+      const timestamp = timestampSeconds > 0 ? new Date(timestampSeconds * 1000) : new Date();
+
       try {
-        // Skip media messages
-        if (msg.hasMedia || msg.isMedia) continue;
-
-        // Skip empty messages
-        const text = msg.body?.trim();
-        if (!text) continue;
-
-        // Determine direction and if it's from bot
-        const isFromBot = msg.fromMe;
-        const direction = isFromBot ? "outgoing" : "incoming";
-
-        // Save to database (mark as human-written, not AI-generated)
         queueMessageForPersistence({
           sessionCode,
           contactId,
-          direction,
+          direction: message.fromMe ? "outgoing" : "incoming",
           message: text,
-          timestamp: new Date(msg.timestamp * 1000),
-          isAiGenerated: false, // All imported messages are human-written
+          timestamp,
+          isAiGenerated: false,
         });
-
-        importedCount++;
-      } catch (msgError) {
+        importedCount += 1;
+      } catch (error) {
         logger.debug(
-          { err: msgError, sessionCode, contactId },
-          "Failed to process individual message during import"
+          { err: error, sessionCode, contactId },
+          "Failed to queue imported persona message"
         );
-        // Continue with next message
       }
     }
 
-    // Flush messages to database
-    if (importedCount > 0) {
-      const { flushQueuedMessages } = await import(
-        "../persistence/chatPersistenceService"
-      );
+    if (importedCount) {
       await flushQueuedMessages();
     }
 
     return importedCount;
   } catch (error) {
-    logger.error(
-      { err: error, sessionCode, contactId },
-      "Failed to import chat history"
-    );
-    throw error;
+    logger.error({ err: error, sessionCode, contactId }, "Persona history import failed");
+    return 0;
   }
 }
 
-/**
- * Check if a message is from the bot owner
- * According to WPPConnect, the bot's own number can be detected differently
- */
-function isBotOwner(msg: any, sessionCode: string): boolean {
-  // Method 1: Check if fromMe is true (messages sent by the bot itself)
+function isBotOwner(msg: ExtendedMessage, sessionCode: string): boolean {
   if (msg.fromMe) {
     return true;
   }
 
-  // Method 2: Compare with the session's authenticated number
-  try {
-    const session = sessions.get(sessionCode);
-    if (session && session.botNumber) {
-      const messageFrom = msg.from.replace(/@.*$/, ""); // Remove @c.us suffix
-      return session.botNumber === messageFrom;
-    }
-  } catch (error) {
-    logger.debug({ err: error }, "Error checking bot owner");
+  const session = sessions.get(sessionCode) as SessionState | undefined;
+  const botNumber = session?.botNumber;
+  if (!botNumber || !msg.from) {
+    return false;
   }
 
-  return false;
+  const sanitizedFrom = msg.from.replace(/@.*$/, "");
+  return botNumber === sanitizedFrom;
 }
 
-/**
- * Process commands from both bot owner and users
- * @returns {Promise<boolean>} true if the message was a command and was processed
- */
 async function processCommands(
   code: string,
-  state: any,
-  msg: any
+  state: SessionState,
+  msg: ExtendedMessage
 ): Promise<boolean> {
-  if (!msg || typeof msg.body !== "string") return false;
+  if (!msg || typeof msg.body !== "string" || !state?.client) {
+    return false;
+  }
 
   const text = msg.body.trim();
-  if (!text) return false;
+  if (!text) {
+    return false;
+  }
 
   const commandText = text.toLowerCase();
-  // Determine chat ID: use msg.to for outgoing owner messages, msg.from for incoming
   const chatId = msg.fromMe ? msg.to : msg.from;
-  const isBotOwnerMessage = isBotOwner(msg, code);
+  const isOwner = isBotOwner(msg, code);
 
-  // Bot owner commands (only work when sent by the bot owner)
-  if (isBotOwnerMessage) {
+  if (isOwner) {
     if (commandText === "!stopall") {
-      const wasActive = Boolean(state.globalStop.active);
-      if (!wasActive) {
+      const alreadyStopped = state.globalStop.active;
+      if (!alreadyStopped) {
         state.globalStop.active = true;
         state.globalStop.since = Date.now();
       }
       await safeReply(
         state.client,
         msg,
-        wasActive
+        alreadyStopped
           ? "🛑 Global auto replies are already disabled."
           : "🛑 Global auto replies disabled. I'll stay quiet until you send !startall.",
         false
       );
       return true;
-    } else if (commandText === "!startall") {
-      const wasActive = Boolean(state.globalStop.active);
+    }
+
+    if (commandText === "!startall") {
+      const wasStopped = state.globalStop.active;
       state.globalStop.active = false;
       state.globalStop.since = 0;
-      if (state.stopList.size) {
-        state.stopList.clear();
-      }
+      state.stopList.clear();
       await safeReply(
         state.client,
         msg,
-        wasActive
+        wasStopped
           ? "✅ Global auto replies re-enabled for all chats."
           : "✅ Global auto replies were already enabled.",
         false
@@ -176,32 +230,22 @@ async function processCommands(
     }
   }
 
-  // User commands (work for any user)
+  if (!chatId) {
+    return false;
+  }
+
   if (commandText === "!stop") {
     state.stopList.set(chatId, Date.now());
-    await safeReply(
-      state.client,
-      msg,
-      "🤖 Auto replies disabled for this chat for 24 hours.",
-      false
-    );
+    await safeReply(state.client, msg, "🤖 Auto replies disabled for this chat for 24 hours.", false);
     return true;
-  } else if (commandText === "!start") {
+  }
+
+  if (commandText === "!start") {
     if (state.stopList.has(chatId)) {
       state.stopList.delete(chatId);
-      await safeReply(
-        state.client,
-        msg,
-        "🤖 Auto replies re-enabled for this chat.",
-        false
-      );
+      await safeReply(state.client, msg, "🤖 Auto replies re-enabled for this chat.", false);
     } else {
-      await safeReply(
-        state.client,
-        msg,
-        "🤖 Auto replies were already enabled here.",
-        false
-      );
+      await safeReply(state.client, msg, "🤖 Auto replies were already enabled here.", false);
     }
     return true;
   }
@@ -209,147 +253,76 @@ async function processCommands(
   return false;
 }
 
-/**
- * Helper function to download media with retries for WPPConnect
- * WPPConnect's downloadMedia returns base64 string directly or throws/returns empty on failure
- * @param forceForVoice - If true, skips the isMedia check for voice messages (PTT) as it may fire early
- */
 async function downloadMediaWithRetry(
-  client: any,
-  msg: any,
-  maxRetries: number = 3,
-  baseDelayMs: number = 1000,
-  forceForVoice: boolean = false
+  client: Whatsapp | null,
+  msg: ExtendedMessage,
+  maxRetries = 3,
+  baseDelayMs = 1000,
+  forceForVoice = false
 ): Promise<string | null> {
+  if (!client) {
+    return null;
+  }
+
   const sessionCode = msg.session || "unknown";
   const chatId = msg.from || "unknown";
   const isVoice = msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
 
-  if (!forceForVoice && !msg.isMedia && !isVoice) {
-    logger.warn(
-      { code: sessionCode, chatId },
-      "Message has no media available"
-    );
+  if (!forceForVoice && !msg.isMedia && !msg.hasMedia && !isVoice) {
+    logger.debug({ sessionCode, chatId }, "Skipping download: no media present");
     return null;
   }
 
-  if (forceForVoice && isVoice && !msg.isMedia) {
-    logger.debug(
-      { code: sessionCode, chatId, msgType: msg.type },
-      "Forcing media download for voice message despite isMedia=false (early event?)"
-    );
-  }
+  const clientAny = client as Whatsapp & { downloadMedia?: (message: ExtendedMessage) => Promise<string> };
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
     try {
-      const mediaBase64 = await client.downloadMedia(msg);
-      if (
-        mediaBase64 &&
-        typeof mediaBase64 === "string" &&
-        mediaBase64.length > 0
-      ) {
-        logger.debug(
-          {
-            code: sessionCode,
-            chatId,
-            attempt,
-            mediaLength: mediaBase64.length,
-            isMedia: msg.isMedia,
-          },
-          "Media downloaded successfully"
-        );
+      const mediaBase64 = await clientAny.downloadMedia?.(msg);
+      if (mediaBase64 && typeof mediaBase64 === "string" && mediaBase64.length > 0) {
+        logger.debug({ sessionCode, chatId, attempt }, "Media downloaded successfully");
         return mediaBase64;
-      } else {
-        logger.debug(
-          {
-            code: sessionCode,
-            chatId,
-            attempt,
-            mediaLength: mediaBase64?.length,
-          },
-          "Download returned empty/invalid media"
-        );
       }
-    } catch (downloadError) {
-      logger.error(
-        {
-          err: downloadError,
-          code: sessionCode,
-          chatId,
-          attempt,
-          msgType: msg.type,
-          isMedia: msg.isMedia,
-          isVoice,
-        },
-        `DownloadMedia attempt ${attempt} failed`
-      );
+    } catch (error) {
+      logger.error({ err: error, sessionCode, chatId, attempt }, "Voice media download failed");
     }
 
     if (attempt < maxRetries) {
-      const delay = baseDelayMs * attempt; // Progressive delay: 1s, 2s, 3s
-      logger.debug(
-        { code: sessionCode, chatId, attempt, delay },
-        "Retrying download after delay"
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await delay(baseDelayMs * attempt);
     }
   }
 
-  logger.warn(
-    {
-      code: sessionCode,
-      chatId,
-      maxRetries,
-      msgType: msg.type,
-      isMedia: msg.isMedia,
-    },
-    "All download retries exhausted"
-  );
+  logger.warn({ sessionCode, chatId, maxRetries }, "Exhausted media download retries");
   return null;
 }
 
-function registerMessageHandlers(code: string, state: any) {
-  state.client.onAnyMessage(async (msg: any) => {
+function registerMessageHandlers(code: string, state: SessionState) {
+  state.client?.onAnyMessage?.(async (msg: ExtendedMessage) => {
     const current = sessions.get(code);
     if (!current || !current.ready) return;
 
-    // Set session on msg if not present (for logging)
     if (!msg.session) {
       msg.session = code;
     }
 
-    // Determine chatId: for outgoing (owner) use msg.to, for incoming use msg.from
     const chatId = msg.fromMe ? msg.to : msg.from;
-
-    // Skip non-personal chats (groups, status/broadcast, newsletters)
     if (typeof chatId === "string") {
       if (chatId.includes("@g.us")) {
         logger.debug({ code, chatId }, "Skipping group message");
         return;
       }
-      if (
-        chatId.includes("@broadcast") ||
-        chatId.includes("status@broadcast")
-      ) {
-        logger.debug(
-          { code, chatId, msgType: msg.type },
-          "Skipping status/broadcast message"
-        );
+      if (chatId.includes("@broadcast") || chatId.includes("status@broadcast")) {
+        logger.debug({ code, chatId, msgType: msg.type }, "Skipping broadcast/status message");
         return;
       }
       if (chatId.includes("@newsletter")) {
-        logger.debug(
-          { code, chatId, msgType: msg.type },
-          "Skipping newsletter message"
-        );
+        logger.debug({ code, chatId, msgType: msg.type }, "Skipping newsletter message");
         return;
       }
     }
-    const config = current.aiConfig;
-    const isVoiceMessage =
-      msg.type === "ptt" || (msg.type === "audio" && msg.isPtt); // Voice message detection
 
-    // Check timestamp first to skip old messages
+    const config = current.aiConfig;
+    const isVoiceMessage = msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
+
     const messageTimestampMs =
       typeof msg.timestamp === "number" && msg.timestamp > 0
         ? msg.timestamp * 1000
@@ -364,29 +337,24 @@ function registerMessageHandlers(code: string, state: any) {
       return;
     }
 
-    // Process commands first (both from bot owner and users)
     if (await processCommands(code, current, msg)) {
-      return; // If it was a command, stop further processing
+      return;
     }
 
-    // If the message is from the bot (outgoing), persist it for persona learning but don't process
     if (msg.fromMe) {
-      // Persist your manual messages for persona learning (exclude media)
-      const text = msg.body?.trim();
+      const text = typeof msg.body === "string" ? msg.body.trim() : "";
       const hasMedia = msg.hasMedia || msg.isMedia || isVoiceMessage;
-      if (text && typeof text === "string" && !hasMedia) {
+      if (text && !hasMedia) {
         appendHistoryEntry(current, chatId, { role: "assistant", text });
-        persistChatMessage(code, chatId, "outgoing", text, false); // false = not AI-generated
+        persistChatMessage(code, chatId, "outgoing", text, false);
       }
-      return; // Don't process further (no AI reply needed for your own messages)
+      return;
     }
 
-    // If we get here, it's not a command and not from the bot - proceed with normal incoming message processing
     if (current.globalStop.active && !isBotOwner(msg, code)) {
       return;
     }
 
-    // Check stop list BEFORE processing voice (to save API costs)
     const stopTime = current.stopList.get(chatId);
     if (stopTime && Date.now() - stopTime < STOP_TIMEOUT_MS) {
       return;
@@ -395,17 +363,11 @@ function registerMessageHandlers(code: string, state: any) {
     }
 
     let text = "";
+    let aiUtilityCommand: AiUtilityCommand | null = null;
 
-    // Now process voice messages or text messages
-    if (
-      isVoiceMessage &&
-      config?.voiceReplyEnabled &&
-      config?.speechToTextApiKey
-    ) {
-      // Early exit for old messages (adjust threshold as needed)
+    if (isVoiceMessage && config?.voiceReplyEnabled && config?.speechToTextApiKey) {
       const messageAgeMs = Date.now() - messageTimestampMs;
       if (messageAgeMs > 24 * 60 * 60 * 1000) {
-        // 24 hours
         await safeReply(
           state.client,
           msg,
@@ -417,36 +379,22 @@ function registerMessageHandlers(code: string, state: any) {
       }
 
       try {
-        // Processing voice message with retry (force for voice to bypass early isMedia=false)
-        const mediaBase64 = await downloadMediaWithRetry(
-          state.client,
-          msg,
-          3,
-          1000,
-          true
-        );
+        const mediaBase64 = await downloadMediaWithRetry(state.client, msg, 3, 1000, true);
         if (!mediaBase64) {
           logger.warn(
-            {
-              code,
-              chatId: msg.from,
-              messageAgeMs,
-              isMedia: msg.isMedia,
-              msgType: msg.type,
-            },
+            { code, chatId: msg.from, messageAgeMs, isMedia: msg.isMedia, msgType: msg.type },
             "Failed to download voice message media after retries"
           );
           await safeReply(
             state.client,
             msg,
-            "❌ Sorry, I couldn't download your voice message after a few tries. This might be due to network issues or the message not being ready. Please try again in a moment or send as text.",
+            "❌ Sorry, I couldn't download your voice message after a few tries. Please try again in a moment or send as text.",
             false
           );
           await markChatUnread(msg);
           return;
         }
 
-        // NEW: Strip data URI prefix if present (WPPConnect returns "data:audio/ogg; codecs=opus;base64,<base64>")
         let cleanBase64 = mediaBase64;
         if (mediaBase64.startsWith("data:")) {
           const commaIndex = mediaBase64.indexOf(",");
@@ -463,64 +411,49 @@ function registerMessageHandlers(code: string, state: any) {
             );
           } else {
             logger.error(
-              {
-                code,
-                chatId: msg.from,
-                mediaPreview: mediaBase64.substring(0, 100),
-              },
+              { code, chatId: msg.from, mediaPreview: mediaBase64.substring(0, 100) },
               "Invalid data URI format in media"
             );
-            await safeReply(
-              state.client,
-              msg,
-              "❌ Invalid voice message format. Please try again.",
-              false
-            );
+            await safeReply(state.client, msg, "❌ Invalid voice message format. Please try again.", false);
             await markChatUnread(msg);
             return;
           }
         }
 
-        // Convert base64 to buffer
         const audioBuffer = Buffer.from(cleanBase64, "base64");
-
-        // Validate buffer size and log preview for debug (fixes tiny buffer issue)
-        const MIN_AUDIO_SIZE = 100; // Bytes; adjust based on shortest expected PTT
+        const MIN_AUDIO_SIZE = 100;
         if (audioBuffer.length < MIN_AUDIO_SIZE) {
           logger.error(
             {
               code,
               chatId: msg.from,
               audioSize: audioBuffer.length,
-              base64Preview: cleanBase64.substring(0, 100), // First 100 chars for inspection
-              fullBase64Length: cleanBase64.length,
+              base64Preview: cleanBase64.substring(0, 100),
             },
-            "Invalid tiny audio buffer from download - likely corrupt base64"
+            "Invalid tiny audio buffer from download"
           );
           await safeReply(
             state.client,
             msg,
-            `❌ Voice message too short or corrupted (only ${audioBuffer.length} bytes received). Please record a longer/clearer one or send text.`,
+            `❌ Voice message too short or corrupted (only ${audioBuffer.length} bytes received). Please record a longer one or send text.`,
             false
           );
           await markChatUnread(msg);
           return;
         }
 
-        const mimeType = msg.mimetype || "audio/ogg; codecs=opus"; // Fallback for PTT
-
+        const mimeType = msg.mimetype || "audio/ogg; codecs=opus";
         logger.debug(
           {
             code,
             chatId: msg.from,
             audioSize: audioBuffer.length,
             mimeType,
-            base64Preview: cleanBase64.substring(0, 50), // Safe preview for logging
+            base64Preview: cleanBase64.substring(0, 50),
           },
           "Processing voice message"
         );
 
-        // Transcribe the audio
         text = await transcribeAudio(
           audioBuffer,
           config.speechToTextApiKey,
@@ -529,18 +462,13 @@ function registerMessageHandlers(code: string, state: any) {
 
         if (!text || !text.trim()) {
           logger.warn(
-            {
-              code,
-              chatId: msg.from,
-              audioSize: audioBuffer.length,
-              language: config.voiceLanguage,
-            },
+            { code, chatId: msg.from, audioSize: audioBuffer.length, language: config.voiceLanguage },
             "Voice message transcription returned empty text"
           );
           await safeReply(
             state.client,
             msg,
-            "🎤 Sorry, I couldn't understand your voice message. This could be due to:\n• Audio too short or unclear\n• Background noise\n• Unsupported language\n\nPlease try speaking more clearly or send a text message.",
+            "🎤 Sorry, I couldn't understand your voice message. Please try speaking more clearly or send text.",
             false
           );
           await markChatUnread(msg);
@@ -548,39 +476,24 @@ function registerMessageHandlers(code: string, state: any) {
         }
 
         logger.info(
-          {
-            code,
-            chatId: msg.from,
-            transcriptionLength: text.length,
-            preview: text.substring(0, 50),
-          },
+          { code, chatId: msg.from, transcriptionLength: text.length, preview: text.substring(0, 50) },
           "Voice message transcribed successfully"
         );
-
-        // Voice message transcribed successfully
       } catch (error) {
+        const err = error as Error & { code?: string };
+        const message = typeof err?.message === "string" ? err.message : "";
+
         logger.error(
-          {
-            err: error,
-            code,
-            chatId: msg.from,
-            errorMessage: error.message,
-            errorCode: error.code,
-          },
+          { err, code, chatId: msg.from, errorMessage: message, errorCode: err?.code },
           "Failed to process voice message"
         );
 
-        // Provide more specific error message based on error type
-        let errorMsg =
-          "❌ Sorry, there was an error processing your voice message.";
-        if (error.message?.includes("API key")) {
+        let errorMsg = "❌ Sorry, there was an error processing your voice message.";
+        if (message.includes("API key")) {
           errorMsg += " The Speech-to-Text API key may be invalid.";
-        } else if (
-          error.message?.includes("quota") ||
-          error.message?.includes("limit")
-        ) {
+        } else if (message.includes("quota") || message.includes("limit")) {
           errorMsg += " API quota exceeded. Please try again later.";
-        } else if (error.message?.includes("permission")) {
+        } else if (message.includes("permission")) {
           errorMsg += " API permissions issue. Please contact support.";
         } else {
           errorMsg += " Please try sending it as text.";
@@ -591,94 +504,104 @@ function registerMessageHandlers(code: string, state: any) {
         return;
       }
     } else {
-      // Regular text message
       if (!msg || typeof msg.body !== "string") return;
       text = msg.body.trim();
       if (!text) return;
     }
 
-    // Persist incoming message (exclude media - voice messages are already transcribed to text)
-    const hasMedia = msg.hasMedia || msg.isMedia;
-    const shouldPersist = !hasMedia || isVoiceMessage; // Voice messages are OK since we have transcribed text
+    aiUtilityCommand = detectAiUtilityCommand(text, msg);
+    if (aiUtilityCommand) {
+      logger.debug(
+        {
+          code,
+          chatId,
+          mode: aiUtilityCommand.mode,
+          referenced: Boolean(aiUtilityCommand.referencedText),
+          promptPreview: aiUtilityCommand.rawPrompt.slice(0, 80),
+        },
+        "Detected !me AI utility command"
+      );
+    }
 
+    const hasMedia = msg.hasMedia || msg.isMedia;
+    const shouldPersist = !hasMedia || isVoiceMessage;
     appendHistoryEntry(current, chatId, { role: "user", text });
     if (shouldPersist) {
-      persistChatMessage(code, chatId, "incoming", text, false); // false = not AI-generated
+      persistChatMessage(code, chatId, "incoming", text, false);
     }
 
     if (!config) return;
 
-    const customReply = findCustomReply(config.customReplies, text);
-    if (customReply) {
-      try {
-        const shouldSendAsVoice =
-          isVoiceMessage &&
-          config.voiceReplyEnabled &&
-          config.textToSpeechApiKey;
+    if (!aiUtilityCommand) {
+      const customReply = findCustomReply(config.customReplies, text);
+      if (customReply) {
+        try {
+          const shouldSendAsVoice =
+            isVoiceMessage && config.voiceReplyEnabled && config.textToSpeechApiKey;
+          await safeReply(state.client, msg, customReply, shouldSendAsVoice, config);
+          appendHistoryEntry(current, chatId, { role: "assistant", text: customReply });
+          persistChatMessage(code, chatId, "outgoing", customReply, false);
+          await markChatUnread(msg);
+        } catch (error) {
+          logger.error({ err: error, chatId }, "Custom reply send error");
+        }
+        return;
+      }
+    }
+
+    if (!config.apiKey || !config.model) {
+      if (aiUtilityCommand) {
         await safeReply(
           state.client,
           msg,
-          customReply,
-          shouldSendAsVoice,
-          config
+          "⚙️ AI configuration is missing (API key or model). Please update the settings before using !me commands.",
+          false
         );
-        appendHistoryEntry(current, chatId, {
-          role: "assistant",
-          text: customReply,
-        });
-        // Custom replies are text-only, safe to persist
-        persistChatMessage(code, chatId, "outgoing", customReply, false); // Custom reply = not AI
         await markChatUnread(msg);
-      } catch (error) {
-        logger.error({ err: error, chatId }, "Custom reply send error");
       }
       return;
     }
 
-    if (!config.autoReplyEnabled) {
-      return;
-    }
-
-    if (!config.apiKey || !config.model) {
+    if (!config.autoReplyEnabled && !aiUtilityCommand) {
       return;
     }
 
     try {
-      // Get context window setting (respects user's configuration)
       const { clampContextWindow } = await import("./configManager");
       const contextWindow = clampContextWindow(config.contextWindow);
 
-      // Use recent history for context
       const { getHistoryForChat } = await import("./chatHistory");
-      const history = getHistoryForChat(current, chatId, contextWindow);
+      const rawHistory = getHistoryForChat(current, chatId, contextWindow);
+      let history: HistoryEntry[] = rawHistory.map((entry) => ({
+        role: entry.role === "assistant" ? "assistant" : "user",
+        text: entry.text,
+      }));
 
-      // --- MEMORY OPTIMIZATION: Lazy Load Persona Examples ---
-      // Only load persona examples if they will actually be used
-      // This saves 15-20MB/hour by not loading data that gets cached anyway
-      const loadPersonaExamples = async (): Promise<string[]> => {
+      if (aiUtilityCommand) {
+        history = enhanceHistoryForUtilityCommand(history, aiUtilityCommand);
+      }
+
+      const loadPersonaProfile = async () => {
         const { getChatMessages, getUniversalPersona } = await import(
           "../persistence/chatPersistenceService"
         );
         let chatMessages = await getChatMessages(code, chatId);
 
-        // --- NEW FEATURE: Auto-build persona from WhatsApp chat history ---
-        // If we have less than 250 messages in database, try to fetch from WhatsApp
-        if (chatMessages.length < 250 && current.client) {
+        if (chatMessages.length < CONTACT_PERSONA_MIN_MESSAGES && current.client) {
           try {
             logger.info(
               { code, chatId, currentCount: chatMessages.length },
               "Attempting to build persona from WhatsApp chat history"
             );
-            
+
             const importedCount = await importChatHistoryToPersona(
               current.client,
               code,
               chatId,
               chatMessages.length
             );
-            
+
             if (importedCount > 0) {
-              // Reload messages after import
               chatMessages = await getChatMessages(code, chatId);
               logger.info(
                 { code, chatId, imported: importedCount, total: chatMessages.length },
@@ -692,102 +615,103 @@ function registerMessageHandlers(code: string, state: any) {
             );
           }
         }
-        // --- END NEW FEATURE ---
 
-        let personaExamples: string[] = [];
+        const exampleLimit = Math.min(
+          8,
+          Math.max(3, Math.floor(contextWindow / 5) || 0)
+        );
 
-        if (chatMessages.length >= 250) {
-          // Use contact-specific persona for established chats (250+ messages)
-          // Build conversation pairs: show what user said and how I responded
-          const conversationPairs: string[] = [];
+        const contactData = extractContactPersonaData(chatMessages, exampleLimit);
 
-          for (let i = 0; i < chatMessages.length - 1; i++) {
-            const current = chatMessages[i].message;
-            const next = chatMessages[i + 1].message;
-
-            // --- FIX: Filter out AI-generated replies ---
-            // Find pairs where user message is followed by MY HUMAN reply (not AI reply)
-            // This prevents the AI from learning from its own responses
-            if (current.startsWith("User: ") && next.startsWith("My reply: ")) {
-              const userMsg = current.replace("User: ", "");
-              const myReply = next.replace("My reply: ", "");
-              conversationPairs.push(
-                `User said: "${userMsg}"\nI replied: "${myReply}"`
-              );
-            }
-            // Skip "AI reply:" messages - they should not be used for persona learning
-            // --- END FIX ---
-          }
-
-          personaExamples = conversationPairs.slice(-contextWindow);
+        if (chatMessages.length >= CONTACT_PERSONA_MIN_MESSAGES && contactData.examples.length >= 3) {
+          const profile = buildPersonaProfile({
+            source: "contact",
+            replies: contactData.replies,
+            examples: contactData.examples,
+            exampleLimit,
+          });
 
           logger.debug(
             {
               code,
               chatId,
-              personaSource: "contact",
-              exampleCount: personaExamples.length,
-              totalMessages: chatMessages.length,
+              personaSource: profile.source,
+              exampleCount: profile.examples.length,
+              guidelineCount: profile.guidelines.length,
               contextWindow,
             },
-            "Using contact-specific persona with conversation pairs"
+            "Using contact-specific persona profile"
           );
-        } else {
-          // Use universal persona for new/small chats (already just your replies)
-          const universalMessages = await getUniversalPersona(code);
 
-          // --- FIX: Additional safety filter to exclude AI-generated messages ---
-          // Filter out any "AI reply:" messages that might have been stored
-          const humanRepliesOnly = universalMessages.filter(
-            (msg) => !msg.startsWith("AI reply:")
-          );
-          personaExamples = humanRepliesOnly.slice(-contextWindow);
-          // --- END FIX ---
-
-          logger.debug(
-            {
-              code,
-              chatId,
-              personaSource: "universal",
-              exampleCount: personaExamples.length,
-              contextWindow,
-            },
-            "Using universal persona"
-          );
+          return profile;
         }
 
-        return personaExamples;
-      };
-      // --- END OPTIMIZATION ---
+        const universalMessages = await getUniversalPersona(code);
+        const cleanedReplies = universalMessages
+          .map((msg) => (typeof msg === "string" ? msg.trim() : ""))
+          .filter(Boolean);
 
-      let reply = null;
+        if (cleanedReplies.length) {
+          const profile = buildPersonaProfile({
+            source: "universal",
+            replies: cleanedReplies,
+            examples: buildStandaloneExamples(cleanedReplies, exampleLimit),
+            exampleLimit,
+          });
+
+          logger.debug(
+            {
+              code,
+              chatId,
+              personaSource: profile.source,
+              exampleCount: profile.examples.length,
+              guidelineCount: profile.guidelines.length,
+            },
+            "Using universal persona profile"
+          );
+
+          return profile;
+        }
+
+        const fallbackProfile = buildPersonaProfile({
+          source: "bootstrap",
+          replies: [],
+          examples: [],
+          exampleLimit,
+        });
+
+        logger.debug(
+          { code, chatId, personaSource: fallbackProfile.source },
+          "Using fallback persona profile"
+        );
+
+        return fallbackProfile;
+      };
+
+      let reply: string | null = null;
       let retryCount = 0;
       const maxRetries = 2;
 
-      // Retry logic for API overload (503 errors)
       while (retryCount <= maxRetries && !reply) {
         try {
           reply = await generateReply(
             {
               ...config,
-              loadPersonaExamples, // Pass lazy loader function instead of data
-              contactId: chatId, // Pass contactId for context caching
+              loadPersonaProfile,
+              contactId: chatId,
             },
             history
           );
-          break; // Success, exit loop
-        } catch (error: any) {
-          if (error.statusCode === 503 && retryCount < maxRetries) {
-            retryCount++;
-            const delayMs = 2000 * retryCount; // 2s, 4s
-            logger.info(
-              { code, chatId, retryCount, delayMs },
-              "Retrying after API overload"
-            );
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-          } else {
-            throw error; // Re-throw if not 503 or max retries reached
+        } catch (error) {
+          const err = error as { statusCode?: number } & Error;
+          if (err.statusCode === 503 && retryCount < maxRetries) {
+            retryCount += 1;
+            const delayMs = 2000 * retryCount;
+            logger.info({ code, chatId, retryCount, delayMs }, "Retrying after API overload");
+            await delay(delayMs);
+            continue;
           }
+          throw err;
         }
       }
 
@@ -797,43 +721,30 @@ function registerMessageHandlers(code: string, state: any) {
           config.voiceReplyEnabled &&
           config.textToSpeechApiKey;
 
-        // Send the reply (as-is, no JSON parsing)
-        await sendFragmentedReply(
-          state.client,
-          msg,
-          reply,
-          shouldSendAsVoice,
-          config
-        );
-
+        await sendFragmentedReply(state.client, msg, reply, shouldSendAsVoice, config);
         appendHistoryEntry(current, chatId, { role: "assistant", text: reply });
-        // AI replies are text-only, safe to persist
-        persistChatMessage(code, chatId, "outgoing", reply, true); // AI-generated = true
+        persistChatMessage(code, chatId, "outgoing", reply, true);
         await markChatUnread(msg);
       } else {
-        // If no reply (likely due to timeout or safety filter), send a fallback message
         const fallbackMessage = isVoiceMessage
           ? "⏱️ Sorry, the AI took too long to respond to your voice message. Please try again."
           : "⏱️ Sorry, the AI took too long to respond. Please try again.";
         await safeReply(state.client, msg, fallbackMessage, false);
         await markChatUnread(msg);
       }
-    } catch (error: any) {
-      logger.error({ err: error, chatId }, "AI reply error");
+    } catch (error) {
+      const err = error as { statusCode?: number } & Error;
+      logger.error({ err, chatId }, "AI reply error");
 
-      // Provide specific error messages based on error type
       let errorMessage =
         "❌ Sorry, an error occurred while generating a reply. Please try again.";
 
-      if (error.statusCode === 503) {
-        errorMessage =
-          "⏳ The AI service is currently overloaded. Please try again in a few moments.";
-      } else if (error.statusCode === 429) {
-        errorMessage =
-          "⏱️ Rate limit reached. Please wait a moment before trying again.";
-      } else if (error.statusCode === 400) {
-        errorMessage =
-          "❌ Invalid request. Please check your message and try again.";
+      if (err.statusCode === 503) {
+        errorMessage = "⏳ The AI service is currently overloaded. Please try again shortly.";
+      } else if (err.statusCode === 429) {
+        errorMessage = "⏱️ Rate limit reached. Please wait a moment before trying again.";
+      } else if (err.statusCode === 400) {
+        errorMessage = "❌ Invalid request. Please check your message and try again.";
       } else if (isVoiceMessage) {
         errorMessage =
           "❌ Sorry, I couldn't process your voice message. Please try sending it as text.";
@@ -843,16 +754,13 @@ function registerMessageHandlers(code: string, state: any) {
         await safeReply(state.client, msg, errorMessage, false);
         await markChatUnread(msg);
       } catch (replyError) {
-        logger.error(
-          { err: replyError, chatId },
-          "Failed to send error notification"
-        );
+        logger.error({ err: replyError, chatId }, "Failed to send error notification");
       }
     }
   });
 }
 
-function findCustomReply(customReplies: any[], text: string): string | null {
+function findCustomReply(customReplies: CustomReplyRule[] | undefined, text: string): string | null {
   if (!Array.isArray(customReplies) || !customReplies.length) {
     return null;
   }
@@ -860,6 +768,8 @@ function findCustomReply(customReplies: any[], text: string): string | null {
   const lowerText = text.toLowerCase();
 
   for (const rule of customReplies) {
+    if (!rule?.trigger || !rule?.response) continue;
+
     switch (rule.matchType) {
       case "exact":
         if (lowerText === rule.trigger.toLowerCase()) {
@@ -888,7 +798,98 @@ function findCustomReply(customReplies: any[], text: string): string | null {
   return null;
 }
 
-async function sendBulkMessages(code: string, payload: any) {
+function detectAiUtilityCommand(text: string, msg: ExtendedMessage): AiUtilityCommand | null {
+  if (!text) {
+    return null;
+  }
+
+  const trimmed = text.trim();
+  if (!trimmed.toLowerCase().startsWith("!me")) {
+    return null;
+  }
+
+  const remainder = trimmed.slice(3).trim();
+  const referencedText = extractQuotedText(msg);
+  const normalized = remainder.toLowerCase();
+
+  let mode: AiUtilityMode = "qa";
+  if (!remainder && referencedText) {
+    mode = "explain";
+  } else if (/explain/.test(normalized) && (/message/.test(normalized) || Boolean(referencedText))) {
+    mode = "explain";
+  }
+
+  const rawPrompt = remainder || (mode === "explain" ? "Explain this message" : "Answer this question");
+
+  return {
+    mode,
+    rawPrompt,
+    normalizedPrompt: normalized || rawPrompt.toLowerCase(),
+    referencedText,
+  };
+}
+
+function extractQuotedText(msg: ExtendedMessage): string | undefined {
+  const quoted = msg?.quotedMsg;
+  if (!quoted) {
+    return undefined;
+  }
+
+  const body = typeof quoted.body === "string" ? quoted.body.trim() : "";
+  return body || undefined;
+}
+
+function enhanceHistoryForUtilityCommand(
+  history: HistoryEntry[],
+  command: AiUtilityCommand
+): HistoryEntry[] {
+  const directive = buildUtilityDirective(command);
+  if (!history.length) {
+    return [{ role: "user", text: directive }];
+  }
+
+  const updated = history.slice();
+  const lastIndex = updated.length - 1;
+  if (updated[lastIndex]?.role === "user") {
+    updated[lastIndex] = { ...updated[lastIndex], text: directive };
+  } else {
+    updated.push({ role: "user", text: directive });
+  }
+
+  return updated;
+}
+
+function buildUtilityDirective(command: AiUtilityCommand): string {
+  const sections: string[] = [
+    "The WhatsApp owner invoked the !me command for an on-demand AI explanation. Reply as the human owner.",
+    `User instruction: ${command.rawPrompt}`,
+  ];
+
+  if (command.referencedText) {
+    sections.push(
+      [
+        "Referenced message (do not quote verbatim in the reply unless necessary):",
+        "\"\"\"",
+        command.referencedText,
+        "\"\"\"",
+      ].join("\n")
+    );
+  }
+
+  if (command.mode === "explain") {
+    sections.push(
+      "Task: Break down the referenced message in simple language, highlighting meaning, intent, and any next steps."
+    );
+  } else {
+    sections.push("Task: Answer the user's question accurately using relevant knowledge and context.");
+  }
+
+  sections.push("Keep the response under four sentences, avoid mentioning AI or the !me command, and stay polite.");
+
+  return sections.join("\n\n");
+}
+
+async function sendBulkMessages(code: string, payload: BulkMessagePayload) {
   const { getSession } = await import("./sessionManager");
   const { normalizeNumbers, performBulkSend } = await import("./utils");
 
@@ -900,18 +901,25 @@ async function sendBulkMessages(code: string, payload: any) {
     throw new Error("Session is not ready yet");
   }
 
+  if (!Array.isArray(payload.numbers) || !payload.numbers.length) {
+    throw new Error("No valid numbers provided");
+  }
+  if (typeof payload.message !== "string" || !payload.message.trim()) {
+    throw new Error("Message body is required");
+  }
+
   const numbers = normalizeNumbers(payload.numbers);
   if (!numbers.length) {
     throw new Error("No valid numbers provided");
   }
 
-  const results = await performBulkSend(
+  const results = (await performBulkSend(
     session,
     payload.message,
     numbers,
     code
-  );
-  const successCount = results.filter((item: any) => item.success).length;
+  )) as BulkSendResult[];
+  const successCount = results.filter((item) => item.success).length;
 
   return {
     total: numbers.length,
