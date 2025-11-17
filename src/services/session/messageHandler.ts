@@ -9,6 +9,7 @@ import {
   buildStandaloneExamples,
   extractContactPersonaData,
 } from "./personaProfiler";
+import type { PersonaProfile } from "../../types/persona";
 import { appendHistoryEntry, persistChatMessage } from "./chatHistory";
 import { markChatUnread, safeReply, sendFragmentedReply } from "./utils";
 import { sessions } from "./sessionManager";
@@ -104,18 +105,28 @@ async function importChatHistoryToPersona(
   }
 
   try {
-    const clientAny = client as Whatsapp & { getChatById?: (id: string) => Promise<unknown> };
+    const clientAny = client as Whatsapp & {
+      getChatById?: (id: string) => Promise<unknown>;
+    };
     const rawChat = (await clientAny.getChatById?.(contactId)) as {
       fetchMessages?: (opts: { limit: number }) => Promise<ExtendedMessage[]>;
     } | null;
     if (!rawChat || typeof rawChat.fetchMessages !== "function") {
-      logger.warn({ sessionCode, contactId }, "Chat not found in WhatsApp for persona import");
+      logger.warn(
+        { sessionCode, contactId },
+        "Chat not found in WhatsApp for persona import"
+      );
       return 0;
     }
 
-    const messages: ExtendedMessage[] = await rawChat.fetchMessages({ limit: fetchLimit });
+    const messages: ExtendedMessage[] = await rawChat.fetchMessages({
+      limit: fetchLimit,
+    });
     if (!messages?.length) {
-      logger.info({ sessionCode, contactId }, "No messages returned from WhatsApp chat");
+      logger.info(
+        { sessionCode, contactId },
+        "No messages returned from WhatsApp chat"
+      );
       return 0;
     }
 
@@ -130,8 +141,10 @@ async function importChatHistoryToPersona(
         continue;
       }
 
-      const timestampSeconds = typeof message.timestamp === "number" ? message.timestamp : 0;
-      const timestamp = timestampSeconds > 0 ? new Date(timestampSeconds * 1000) : new Date();
+      const timestampSeconds =
+        typeof message.timestamp === "number" ? message.timestamp : 0;
+      const timestamp =
+        timestampSeconds > 0 ? new Date(timestampSeconds * 1000) : new Date();
 
       try {
         queueMessageForPersistence({
@@ -157,7 +170,10 @@ async function importChatHistoryToPersona(
 
     return importedCount;
   } catch (error) {
-    logger.error({ err: error, sessionCode, contactId }, "Persona history import failed");
+    logger.error(
+      { err: error, sessionCode, contactId },
+      "Persona history import failed"
+    );
     return 0;
   }
 }
@@ -236,16 +252,31 @@ async function processCommands(
 
   if (commandText === "!stop") {
     state.stopList.set(chatId, Date.now());
-    await safeReply(state.client, msg, "🤖 Auto replies disabled for this chat for 24 hours.", false);
+    await safeReply(
+      state.client,
+      msg,
+      "🤖 Auto replies disabled for this chat for 24 hours.",
+      false
+    );
     return true;
   }
 
   if (commandText === "!start") {
     if (state.stopList.has(chatId)) {
       state.stopList.delete(chatId);
-      await safeReply(state.client, msg, "🤖 Auto replies re-enabled for this chat.", false);
+      await safeReply(
+        state.client,
+        msg,
+        "🤖 Auto replies re-enabled for this chat.",
+        false
+      );
     } else {
-      await safeReply(state.client, msg, "🤖 Auto replies were already enabled here.", false);
+      await safeReply(
+        state.client,
+        msg,
+        "🤖 Auto replies were already enabled here.",
+        false
+      );
     }
     return true;
   }
@@ -269,21 +300,36 @@ async function downloadMediaWithRetry(
   const isVoice = msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
 
   if (!forceForVoice && !msg.isMedia && !msg.hasMedia && !isVoice) {
-    logger.debug({ sessionCode, chatId }, "Skipping download: no media present");
+    logger.debug(
+      { sessionCode, chatId },
+      "Skipping download: no media present"
+    );
     return null;
   }
 
-  const clientAny = client as Whatsapp & { downloadMedia?: (message: ExtendedMessage) => Promise<string> };
+  const clientAny = client as Whatsapp & {
+    downloadMedia?: (message: ExtendedMessage) => Promise<string>;
+  };
 
   for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
     try {
       const mediaBase64 = await clientAny.downloadMedia?.(msg);
-      if (mediaBase64 && typeof mediaBase64 === "string" && mediaBase64.length > 0) {
-        logger.debug({ sessionCode, chatId, attempt }, "Media downloaded successfully");
+      if (
+        mediaBase64 &&
+        typeof mediaBase64 === "string" &&
+        mediaBase64.length > 0
+      ) {
+        logger.debug(
+          { sessionCode, chatId, attempt },
+          "Media downloaded successfully"
+        );
         return mediaBase64;
       }
     } catch (error) {
-      logger.error({ err: error, sessionCode, chatId, attempt }, "Voice media download failed");
+      logger.error(
+        { err: error, sessionCode, chatId, attempt },
+        "Voice media download failed"
+      );
     }
 
     if (attempt < maxRetries) {
@@ -291,7 +337,10 @@ async function downloadMediaWithRetry(
     }
   }
 
-  logger.warn({ sessionCode, chatId, maxRetries }, "Exhausted media download retries");
+  logger.warn(
+    { sessionCode, chatId, maxRetries },
+    "Exhausted media download retries"
+  );
   return null;
 }
 
@@ -310,18 +359,28 @@ function registerMessageHandlers(code: string, state: SessionState) {
         logger.debug({ code, chatId }, "Skipping group message");
         return;
       }
-      if (chatId.includes("@broadcast") || chatId.includes("status@broadcast")) {
-        logger.debug({ code, chatId, msgType: msg.type }, "Skipping broadcast/status message");
+      if (
+        chatId.includes("@broadcast") ||
+        chatId.includes("status@broadcast")
+      ) {
+        logger.debug(
+          { code, chatId, msgType: msg.type },
+          "Skipping broadcast/status message"
+        );
         return;
       }
       if (chatId.includes("@newsletter")) {
-        logger.debug({ code, chatId, msgType: msg.type }, "Skipping newsletter message");
+        logger.debug(
+          { code, chatId, msgType: msg.type },
+          "Skipping newsletter message"
+        );
         return;
       }
     }
 
     const config = current.aiConfig;
-    const isVoiceMessage = msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
+    const isVoiceMessage =
+      msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
 
     const messageTimestampMs =
       typeof msg.timestamp === "number" && msg.timestamp > 0
@@ -346,21 +405,33 @@ function registerMessageHandlers(code: string, state: SessionState) {
     const isUtilityCommand = Boolean(aiUtilityCommand);
 
     if (msg.fromMe && !isUtilityCommand) {
-      const isVoiceMessage = msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
+      const isVoiceMessage =
+        msg.type === "ptt" || (msg.type === "audio" && msg.isPtt);
       const hasMedia = msg.hasMedia || msg.isMedia || isVoiceMessage;
       if (textFromBody && !hasMedia) {
-        appendHistoryEntry(current, chatId, { role: "assistant", text: textFromBody });
+        appendHistoryEntry(current, chatId, {
+          role: "assistant",
+          text: textFromBody,
+        });
         persistChatMessage(code, chatId, "outgoing", textFromBody, false);
       }
       return;
     }
 
-    if (current.globalStop.active && !isBotOwner(msg, code) && !isUtilityCommand) {
+    if (
+      current.globalStop.active &&
+      !isBotOwner(msg, code) &&
+      !isUtilityCommand
+    ) {
       return;
     }
 
     const stopTime = current.stopList.get(chatId);
-    if (stopTime && Date.now() - stopTime < STOP_TIMEOUT_MS && !isUtilityCommand) {
+    if (
+      stopTime &&
+      Date.now() - stopTime < STOP_TIMEOUT_MS &&
+      !isUtilityCommand
+    ) {
       return;
     } else if (stopTime) {
       current.stopList.delete(chatId);
@@ -368,7 +439,11 @@ function registerMessageHandlers(code: string, state: SessionState) {
 
     let text = "";
 
-    if (isVoiceMessage && config?.voiceReplyEnabled && config?.speechToTextApiKey) {
+    if (
+      isVoiceMessage &&
+      config?.voiceReplyEnabled &&
+      config?.speechToTextApiKey
+    ) {
       const messageAgeMs = Date.now() - messageTimestampMs;
       if (messageAgeMs > 24 * 60 * 60 * 1000) {
         await safeReply(
@@ -382,10 +457,22 @@ function registerMessageHandlers(code: string, state: SessionState) {
       }
 
       try {
-        const mediaBase64 = await downloadMediaWithRetry(state.client, msg, 3, 1000, true);
+        const mediaBase64 = await downloadMediaWithRetry(
+          state.client,
+          msg,
+          3,
+          1000,
+          true
+        );
         if (!mediaBase64) {
           logger.warn(
-            { code, chatId: msg.from, messageAgeMs, isMedia: msg.isMedia, msgType: msg.type },
+            {
+              code,
+              chatId: msg.from,
+              messageAgeMs,
+              isMedia: msg.isMedia,
+              msgType: msg.type,
+            },
             "Failed to download voice message media after retries"
           );
           await safeReply(
@@ -414,10 +501,19 @@ function registerMessageHandlers(code: string, state: SessionState) {
             );
           } else {
             logger.error(
-              { code, chatId: msg.from, mediaPreview: mediaBase64.substring(0, 100) },
+              {
+                code,
+                chatId: msg.from,
+                mediaPreview: mediaBase64.substring(0, 100),
+              },
               "Invalid data URI format in media"
             );
-            await safeReply(state.client, msg, "❌ Invalid voice message format. Please try again.", false);
+            await safeReply(
+              state.client,
+              msg,
+              "❌ Invalid voice message format. Please try again.",
+              false
+            );
             await markChatUnread(msg);
             return;
           }
@@ -465,12 +561,17 @@ function registerMessageHandlers(code: string, state: SessionState) {
 
         if (!text || !text.trim()) {
           logger.warn(
-            { code, chatId: msg.from, audioSize: audioBuffer.length, language: config.voiceLanguage },
+            {
+              code,
+              chatId: msg.from,
+              audioSize: audioBuffer.length,
+              language: config.voiceLanguage,
+            },
             "Voice message transcription returned empty text"
           );
           await safeReply(
             state.client,
-            
+
             msg,
             "🎤 Sorry, I couldn't understand your voice message. Please try speaking more clearly or send text.",
             false
@@ -480,7 +581,12 @@ function registerMessageHandlers(code: string, state: SessionState) {
         }
 
         logger.info(
-          { code, chatId: msg.from, transcriptionLength: text.length, preview: text.substring(0, 50) },
+          {
+            code,
+            chatId: msg.from,
+            transcriptionLength: text.length,
+            preview: text.substring(0, 50),
+          },
           "Voice message transcribed successfully"
         );
       } catch (error) {
@@ -488,11 +594,18 @@ function registerMessageHandlers(code: string, state: SessionState) {
         const message = typeof err?.message === "string" ? err.message : "";
 
         logger.error(
-          { err, code, chatId: msg.from, errorMessage: message, errorCode: err?.code },
+          {
+            err,
+            code,
+            chatId: msg.from,
+            errorMessage: message,
+            errorCode: err?.code,
+          },
           "Failed to process voice message"
         );
 
-        let errorMsg = "❌ Sorry, there was an error processing your voice message.";
+        let errorMsg =
+          "❌ Sorry, there was an error processing your voice message.";
         if (message.includes("API key")) {
           errorMsg += " The Speech-to-Text API key may be invalid.";
         } else if (message.includes("quota") || message.includes("limit")) {
@@ -540,9 +653,20 @@ function registerMessageHandlers(code: string, state: SessionState) {
       if (customReply) {
         try {
           const shouldSendAsVoice =
-            isVoiceMessage && config.voiceReplyEnabled && config.textToSpeechApiKey;
-          await safeReply(state.client, msg, customReply, shouldSendAsVoice, config);
-          appendHistoryEntry(current, chatId, { role: "assistant", text: customReply });
+            isVoiceMessage &&
+            config.voiceReplyEnabled &&
+            config.textToSpeechApiKey;
+          await safeReply(
+            state.client,
+            msg,
+            customReply,
+            shouldSendAsVoice,
+            config
+          );
+          appendHistoryEntry(current, chatId, {
+            role: "assistant",
+            text: customReply,
+          });
           persistChatMessage(code, chatId, "outgoing", customReply, false);
           await markChatUnread(msg);
         } catch (error) {
@@ -590,7 +714,10 @@ function registerMessageHandlers(code: string, state: SessionState) {
         );
         let chatMessages = await getChatMessages(code, chatId);
 
-        if (chatMessages.length < CONTACT_PERSONA_MIN_MESSAGES && current.client) {
+        if (
+          chatMessages.length < CONTACT_PERSONA_MIN_MESSAGES &&
+          current.client
+        ) {
           try {
             logger.info(
               { code, chatId, currentCount: chatMessages.length },
@@ -607,7 +734,12 @@ function registerMessageHandlers(code: string, state: SessionState) {
             if (importedCount > 0) {
               chatMessages = await getChatMessages(code, chatId);
               logger.info(
-                { code, chatId, imported: importedCount, total: chatMessages.length },
+                {
+                  code,
+                  chatId,
+                  imported: importedCount,
+                  total: chatMessages.length,
+                },
                 "Successfully imported chat history to persona"
               );
             }
@@ -624,9 +756,15 @@ function registerMessageHandlers(code: string, state: SessionState) {
           Math.max(3, Math.floor(contextWindow / 5) || 0)
         );
 
-        const contactData = extractContactPersonaData(chatMessages, exampleLimit);
+        const contactData = extractContactPersonaData(
+          chatMessages,
+          exampleLimit
+        );
 
-        if (chatMessages.length >= CONTACT_PERSONA_MIN_MESSAGES && contactData.examples.length >= 3) {
+        if (
+          chatMessages.length >= CONTACT_PERSONA_MIN_MESSAGES &&
+          contactData.examples.length >= 3
+        ) {
           const profile = buildPersonaProfile({
             source: "contact",
             replies: contactData.replies,
@@ -695,12 +833,17 @@ function registerMessageHandlers(code: string, state: SessionState) {
       let retryCount = 0;
       const maxRetries = 2;
 
+      const personaLoaderForInvocation =
+        isUtilityCommand && aiUtilityCommand
+          ? async () => buildUtilityPersonaProfile(aiUtilityCommand)
+          : loadPersonaProfile;
+
       while (retryCount <= maxRetries && !reply) {
         try {
           reply = await generateReply(
             {
               ...config,
-              loadPersonaProfile,
+              loadPersonaProfile: personaLoaderForInvocation,
               contactId: chatId,
             },
             history
@@ -710,7 +853,10 @@ function registerMessageHandlers(code: string, state: SessionState) {
           if (err.statusCode === 503 && retryCount < maxRetries) {
             retryCount += 1;
             const delayMs = 2000 * retryCount;
-            logger.info({ code, chatId, retryCount, delayMs }, "Retrying after API overload");
+            logger.info(
+              { code, chatId, retryCount, delayMs },
+              "Retrying after API overload"
+            );
             await delay(delayMs);
             continue;
           }
@@ -724,7 +870,13 @@ function registerMessageHandlers(code: string, state: SessionState) {
           config.voiceReplyEnabled &&
           config.textToSpeechApiKey;
 
-        await sendFragmentedReply(state.client, msg, reply, shouldSendAsVoice, config);
+        await sendFragmentedReply(
+          state.client,
+          msg,
+          reply,
+          shouldSendAsVoice,
+          config
+        );
         appendHistoryEntry(current, chatId, { role: "assistant", text: reply });
         persistChatMessage(code, chatId, "outgoing", reply, true);
         await markChatUnread(msg);
@@ -743,11 +895,14 @@ function registerMessageHandlers(code: string, state: SessionState) {
         "❌ Sorry, an error occurred while generating a reply. Please try again.";
 
       if (err.statusCode === 503) {
-        errorMessage = "⏳ The AI service is currently overloaded. Please try again shortly.";
+        errorMessage =
+          "⏳ The AI service is currently overloaded. Please try again shortly.";
       } else if (err.statusCode === 429) {
-        errorMessage = "⏱️ Rate limit reached. Please wait a moment before trying again.";
+        errorMessage =
+          "⏱️ Rate limit reached. Please wait a moment before trying again.";
       } else if (err.statusCode === 400) {
-        errorMessage = "❌ Invalid request. Please check your message and try again.";
+        errorMessage =
+          "❌ Invalid request. Please check your message and try again.";
       } else if (isVoiceMessage) {
         errorMessage =
           "❌ Sorry, I couldn't process your voice message. Please try sending it as text.";
@@ -757,13 +912,19 @@ function registerMessageHandlers(code: string, state: SessionState) {
         await safeReply(state.client, msg, errorMessage, false);
         await markChatUnread(msg);
       } catch (replyError) {
-        logger.error({ err: replyError, chatId }, "Failed to send error notification");
+        logger.error(
+          { err: replyError, chatId },
+          "Failed to send error notification"
+        );
       }
     }
   });
 }
 
-function findCustomReply(customReplies: CustomReplyRule[] | undefined, text: string): string | null {
+function findCustomReply(
+  customReplies: CustomReplyRule[] | undefined,
+  text: string
+): string | null {
   if (!Array.isArray(customReplies) || !customReplies.length) {
     return null;
   }
@@ -801,7 +962,10 @@ function findCustomReply(customReplies: CustomReplyRule[] | undefined, text: str
   return null;
 }
 
-function detectAiUtilityCommand(text: string, msg: ExtendedMessage): AiUtilityCommand | null {
+function detectAiUtilityCommand(
+  text: string,
+  msg: ExtendedMessage
+): AiUtilityCommand | null {
   if (!text) {
     return null;
   }
@@ -818,11 +982,16 @@ function detectAiUtilityCommand(text: string, msg: ExtendedMessage): AiUtilityCo
   let mode: AiUtilityMode = "qa";
   if (!remainder && referencedText) {
     mode = "explain";
-  } else if (/explain/.test(normalized) && (/message/.test(normalized) || Boolean(referencedText))) {
+  } else if (
+    /explain/.test(normalized) &&
+    (/message/.test(normalized) || Boolean(referencedText))
+  ) {
     mode = "explain";
   }
 
-  const rawPrompt = remainder || (mode === "explain" ? "Explain this message" : "Answer this question");
+  const rawPrompt =
+    remainder ||
+    (mode === "explain" ? "Explain this message" : "Answer this question");
 
   return {
     mode,
@@ -863,33 +1032,92 @@ function enhanceHistoryForUtilityCommand(
 }
 
 function buildUtilityDirective(command: AiUtilityCommand): string {
-  const sections: string[] = [
-    "The WhatsApp owner invoked the !me command for an on-demand AI explanation. Reply as the human owner.",
-    `User instruction: ${command.rawPrompt}`,
-  ];
+  const lines: string[] = [];
+  lines.push("context:");
+  lines.push("  command: !me");
+  lines.push(`  mode: ${command.mode}`);
+  lines.push("  speaker: neutral_ai_assistant");
+  lines.push(
+    "  expectation: Provide on-demand insight for the owner without imitating their persona"
+  );
 
+  lines.push("");
+  lines.push("request:");
+  lines.push(`  raw_prompt: \n"${escapeToonValue(command.rawPrompt)}\n"`);
+  lines.push(
+    `  normalized_prompt: \n"${escapeToonValue(
+      command.normalizedPrompt || command.rawPrompt.toLowerCase()
+    )}\n"`
+  );
+  lines.push(`  has_reference: ${command.referencedText ? "true" : "false"}`);
   if (command.referencedText) {
-    sections.push(
-      [
-        "Referenced message (do not quote verbatim in the reply unless necessary):",
-        "\"\"\"",
-        command.referencedText,
-        "\"\"\"",
-      ].join("\n")
-    );
+    lines.push("  referenced_text: |");
+    lines.push(`    ${command.referencedText.replace(/\n/g, "\n    ")}`);
   }
 
+  lines.push("");
+  lines.push("tasks[2]{id,description}:");
   if (command.mode === "explain") {
-    sections.push(
-      "Task: Break down the referenced message in simple language, highlighting meaning, intent, and any next steps."
+    lines.push(
+      '  1,"Break the referenced message into meaning, intent, and suggested next steps."'
+    );
+    lines.push(
+      '  2,"Provide a concise explanation rooted in the supplied context or quote."'
     );
   } else {
-    sections.push("Task: Answer the user's question accurately using relevant knowledge and context.");
+    lines.push(
+      '  1,"Answer the owner\'s question accurately using the available chat history and reference."'
+    );
+    lines.push(
+      '  2,"Highlight missing info instead of guessing when details are absent."'
+    );
   }
 
-  sections.push("Keep the response under four sentences, avoid mentioning AI or the !me command, and stay polite.");
+  lines.push("");
+  lines.push("constraints[4]{id,rule}:");
+  lines.push(
+    '  1,"Respond as a neutral AI helper; never role-play as the WhatsApp owner."'
+  );
+  lines.push('  2,"Cite assumptions or uncertainties explicitly."');
+  lines.push('  3,"Keep the reply under four sentences and avoid filler."');
+  lines.push(
+    '  4,"Avoid copying prior messages verbatim; rephrase all content."'
+  );
 
-  return sections.join("\n\n");
+  lines.push("");
+  lines.push("output:");
+  lines.push("  allow_ai_reference: true");
+  lines.push("  mention_owner_voice: false");
+  lines.push("  format: short_paragraph");
+
+  return lines.join("\n");
+}
+
+function escapeToonValue(value: string): string {
+  return (value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function buildUtilityPersonaProfile(command: AiUtilityCommand): PersonaProfile {
+  const summary =
+    command.mode === "explain"
+      ? "You are an AI assistant giving clear, neutral explanations of WhatsApp messages."
+      : "You are an AI assistant answering on-demand questions with concise, factual responses.";
+
+  const guidelines = [
+    "Respond as an AI helper, not as the WhatsApp account owner.",
+    "Keep replies under four sentences and avoid unnecessary warmth or emojis.",
+    command.mode === "explain"
+      ? "Break the message down: key points, intent, and any suggested next steps."
+      : "Answer directly using available context; point out gaps instead of guessing.",
+    "Use straightforward language and cite any assumptions explicitly.",
+  ];
+
+  return {
+    source: "bootstrap",
+    summary,
+    guidelines,
+    examples: [],
+  };
 }
 
 async function sendBulkMessages(code: string, payload: BulkMessagePayload) {
