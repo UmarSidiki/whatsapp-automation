@@ -7,6 +7,15 @@ import type { PersonaProfile } from "../../types/persona";
 
 const MAX_MESSAGE_LENGTH = 10000;
 const MAX_PROMPT_CHARS = 250000;
+const FALLBACK_SUMMARY =
+  "No owner-written replies captured yet. Default to a calm, friendly professional tone with one or two concise sentences.";
+const FALLBACK_GUIDELINES = [
+  "Respond strictly as the human owner; never mention automation or AI.",
+  "Keep messages short, factual, and focused on next steps.",
+  "Ask for clarification whenever the request is vague or missing details.",
+  "Use emojis only when the user does first or when you need extra warmth.",
+  "Do not reuse wording from past chats; write original sentences.",
+];
 
 // ##################################################################
 // TYPE DEFINITIONS
@@ -126,8 +135,9 @@ async function generateReply(
       .json()
       .catch(() => null);
     const error = new Error(`Gemini API responded with ${response.status}`);
-    (error as any).statusCode = response.status;
-    (error as any).payload = errorPayload;
+    const enrichedError = error as Error & { statusCode?: number; payload?: unknown };
+    enrichedError.statusCode = response.status;
+    enrichedError.payload = errorPayload;
 
     if (response.status === 503) {
       logger.warn(
@@ -207,45 +217,76 @@ function buildRequestPayload(
  * CRITICAL: Emphasizes learning STYLE, not copying CONTENT
  */
 function buildPersonaPrompt(profile?: PersonaProfile | null): string {
-  if (!profile) {
-    return `You are replying on behalf of the WhatsApp account owner. Keep responses concise, human, and professional.`;
+  const activeProfile = profile || {
+    source: "bootstrap",
+    summary: FALLBACK_SUMMARY,
+    guidelines: FALLBACK_GUIDELINES,
+    examples: [],
+  };
+
+  const summaryText = (activeProfile.summary || FALLBACK_SUMMARY).trim();
+  const guidelineList = activeProfile.guidelines?.length
+    ? activeProfile.guidelines
+    : FALLBACK_GUIDELINES;
+  const examples = Array.isArray(activeProfile.examples) ? activeProfile.examples : [];
+
+  const lines: string[] = [];
+  lines.push("persona:");
+  lines.push(`  source: ${activeProfile.source}`);
+  lines.push("  summary: |");
+  appendMultiline(lines, summaryText, "    ");
+
+  lines.push("");
+  lines.push(`guidelines[${guidelineList.length}]{id,rule}:`);
+  guidelineList.forEach((rule, index) => {
+    lines.push(`  ${index + 1},"${escapeToonValue(rule)}"`);
+  });
+
+  const exampleCount = examples.length;
+  lines.push("");
+  lines.push(`examples[${exampleCount}]{id,user,reply}:`);
+  if (exampleCount) {
+    examples.forEach((example, index) => {
+      const userText = example.user ? escapeToonValue(example.user) : "";
+      const replyText = escapeToonValue(example.reply || "");
+      lines.push(`  ${index + 1},"${userText}","${replyText}"`);
+    });
   }
 
-  const guidelines = (profile.guidelines || []).length
-    ? profile.guidelines
-        .map((line, index) => `${index + 1}. ${line}`)
-        .join("\n")
-    : "1. Mirror the owner's tone.\n2. Keep replies concise and accurate.";
+  lines.push("");
+  lines.push("history_usage:");
+  lines.push("  directive: |");
+  appendMultiline(
+    lines,
+    "Use the upcoming chat history exactly as conversation context. Refer to the last few user and owner turns before replying.",
+    "    "
+  );
+  lines.push("  fallback_behavior: ask_clarifying_question_if_missing");
+  lines.push("  forbid_hallucination: true");
 
-  const examples = (profile.examples || []).length
-    ? profile.examples
-        .map((example, index) => {
-          const userLine = example.user
-            ? `User: ${example.user}`
-            : "User context: (not captured)";
-          return `Example ${index + 1}\n${userLine}\nOwner reply style: ${example.reply}`;
-        })
-        .join("\n\n")
-    : "No reference replies captured yet.";
+  lines.push("");
+  lines.push("response_style:");
+  lines.push("  persona_alignment: must_follow_guidelines");
+  lines.push("  originality_required: true");
+  lines.push("  emoji_policy: match_user_usage_only");
+  lines.push("  closing_instruction: keep responses concise, warm, and error-free");
 
-  const sourceLabel =
-    profile.source === "contact"
-      ? "contact-specific conversation"
-      : profile.source === "universal"
-      ? "overall account history"
-      : "default fallback profile";
+  return lines.join("\n");
+}
 
-  return (
-    `You are composing WhatsApp replies as the human account owner.\n` +
-    `Persona source: ${sourceLabel}.\n\n` +
-    `Style summary:\n${profile.summary}\n\n` +
-    `Guidelines (follow all, do not repeat them verbatim):\n${guidelines}\n\n` +
-    `Reference exchanges (never reuse the exact wording):\n${examples}\n\n` +
-    `Instructions:\n` +
-    `- Base your response on the latest chat history provided after this message.\n` +
-    `- If information is missing, ask a short clarifying question instead of inventing details.\n` +
-    `- Keep replies human, warm, and error-free.`
-  ).trim();
+function appendMultiline(lines: string[], text: string, padding: string) {
+  const content = (text || "").split(/\r?\n/);
+  if (!content.length) {
+    lines.push(`${padding}`);
+    return;
+  }
+  content.forEach((segment) => {
+    lines.push(`${padding}${segment}`);
+  });
+}
+
+function escapeToonValue(value: string): string {
+  return (value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function sanitizeHistory(history: HistoryEntry[]): SanitizedHistoryResult {
