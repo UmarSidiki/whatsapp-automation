@@ -9,6 +9,13 @@ interface CustomReply {
 
 async function safeReply(client, msg, text, sendAsVoice = false, config = null) {
   try {
+    const targetChat = msg?.fromMe ? msg?.to || msg?.from : msg?.from;
+    const quotedMessageId = msg?.id?.id || msg?.id?._serialized;
+    if (!targetChat) {
+      logger.warn({ msgId: quotedMessageId }, "No target chat for reply");
+      return;
+    }
+
     if (sendAsVoice && config && config.textToSpeechApiKey && text && text.trim()) {
       // Generate voice message
       try {
@@ -46,7 +53,7 @@ async function safeReply(client, msg, text, sendAsVoice = false, config = null) 
             },
             `TTS returned invalid audio buffer (too small: ${audioBuffer?.length || 0} bytes), falling back to text`
           );
-          await client.sendText(msg.from, text, { quotedMessageId: msg.id.id });
+          await client.sendText(targetChat, text, { quotedMessageId });
           return;
         }
 
@@ -82,47 +89,47 @@ async function safeReply(client, msg, text, sendAsVoice = false, config = null) 
           // sendPtt(to, filePath, filename?, caption?, quotedMessageId?, messageId?)
           // This expects a file path, not base64
           logger.warn(
-            { to: msg.from },
+            { to: targetChat },
             "sendPttFromBase64 not available, sendPtt requires file path, falling back to text"
           );
-          await client.sendText(msg.from, text, { quotedMessageId: msg.id.id });
+          await client.sendText(targetChat, text, { quotedMessageId });
           return;
         } else if (typeof clientAny.sendFileFromBase64 === "function") {
           // sendFileFromBase64(base64, chatId, fileName, caption?)
           await clientAny.sendFileFromBase64(
             base64Audio,
-            msg.from,
+            targetChat,
             "voice.ogg",
             "Voice reply"
           );
         } else if (typeof clientAny.sendFile === "function") {
           // sendFile(chatId, filePathOrDataURI, fileName, caption?)
-          await clientAny.sendFile(msg.from, dataUri, "voice.ogg");
+          await clientAny.sendFile(targetChat, dataUri, "voice.ogg");
         } else if (typeof clientAny.sendMessage === "function") {
           // Last resort: send raw data URI as message
-          await clientAny.sendMessage(msg.from, dataUri);
+          await clientAny.sendMessage(targetChat, dataUri);
         } else {
           logger.warn(
-            { to: msg.from },
+            { to: targetChat },
             "No supported voice send method found, falling back to text"
           );
-          await client.sendText(msg.from, text, { quotedMessageId: msg.id.id });
+          await client.sendText(targetChat, text, { quotedMessageId });
           return;
         }
       } catch (voiceError) {
         logger.error(
-          { err: voiceError, to: msg.from, textLength: text.length },
+          { err: voiceError, to: targetChat, textLength: text.length },
           "Failed to send voice reply, falling back to text"
         );
         // Fallback to text if voice fails
-        await client.sendText(msg.from, text, { quotedMessageId: msg.id.id });
+        await client.sendText(targetChat, text, { quotedMessageId });
       }
     } else {
       // Send as regular text message
-      await client.sendText(msg.from, text, { quotedMessageId: msg.id.id });
+      await client.sendText(targetChat, text, { quotedMessageId });
     }
   } catch (error) {
-    logger.error({ err: error, to: msg.from }, "Failed to send reply");
+    logger.error({ err: error, to: msg?.from }, "Failed to send reply");
   }
 }
 
